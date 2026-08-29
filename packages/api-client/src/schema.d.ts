@@ -83,6 +83,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Image Proxy
+         * @description Re-serve a discovered image so the browser never hot-links a third party.
+         *
+         *     `url` is remote-supplied and is treated as such: ImageFetcher owns the
+         *     scheme and host allowlists, the resolved-address check, redirect refusal,
+         *     the content-type check and the streamed byte cap.
+         */
+        get: operations["image_proxy_api_image_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/generate": {
         parameters: {
             query?: never;
@@ -430,6 +454,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiscoverResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    image_proxy_api_image_get: {
+        parameters: {
+            query: {
+                url: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

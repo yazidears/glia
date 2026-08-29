@@ -1,26 +1,13 @@
-from collections.abc import Iterator, Sequence
+import time
+from collections.abc import Sequence
 
-import pytest
 from fastapi.testclient import TestClient
+from pytest import MonkeyPatch
 
 from glia.api import get_token_broker
 from glia.config import get_settings
 from glia.contracts import RealtimeTokenResponse
 from glia.main import app
-
-
-@pytest.fixture
-def fixture_mode(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Pin `demo_mode` for the tests that assert the deterministic distiller.
-
-    Settings are read from the ambient `.env`, so without this a developer flipping `DEMO_MODE`
-    to `live` turns a green suite red — the socket falls back to the local projector when
-    Pioneer is unreachable, which is correct behaviour and a misleading test failure.
-    """
-    monkeypatch.setenv("DEMO_MODE", "fixture")
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
 
 
 class FakeTokenBroker:
@@ -61,37 +48,44 @@ def test_realtime_token_uses_short_lived_broker_contract() -> None:
     }
 
 
-def test_websocket_reconciles_deltas_and_returns_stable_intent(fixture_mode: None) -> None:
-    with TestClient(app) as client, client.websocket_connect("/ws") as socket:
-        ready = socket.receive_json()
-        assert ready["type"] == "session.ready"
+def test_websocket_reconciles_deltas_and_returns_stable_intent(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEMO_MODE", "fixture")
+    get_settings.cache_clear()
+    try:
+        with TestClient(app) as client, client.websocket_connect("/ws") as socket:
+            ready = socket.receive_json()
+            assert ready["type"] == "session.ready"
 
-        socket.send_json(
-            {
-                "type": "transcript.delta",
-                "event_id": "event-1",
+            socket.send_json(
+                {
+                    "type": "transcript.delta",
+                    "event_id": "event-1",
+                    "item_id": "item-1",
+                    "delta": "A lonely cobalt ",
+                }
+            )
+            accepted = socket.receive_json()
+            assert accepted == {
+                "type": "transcript.accepted",
                 "item_id": "item-1",
-                "delta": "A lonely cobalt ",
+                "transcript": "A lonely cobalt ",
+                "complete": False,
             }
-        )
-        accepted = socket.receive_json()
-        assert accepted == {
-            "type": "transcript.accepted",
-            "item_id": "item-1",
-            "transcript": "A lonely cobalt ",
-            "complete": False,
-        }
 
-        socket.send_json(
-            {
-                "type": "transcript.completed",
-                "event_id": "event-2",
-                "item_id": "item-1",
-                "transcript": "A lonely cobalt observatory, cinematic and cold",
-            }
-        )
-        completed = socket.receive_json()
-        intent = socket.receive_json()
+            socket.send_json(
+                {
+                    "type": "transcript.completed",
+                    "event_id": "event-2",
+                    "item_id": "item-1",
+                    "transcript": "A lonely cobalt observatory, cinematic and cold",
+                }
+            )
+            completed = socket.receive_json()
+            intent = socket.receive_json()
+    finally:
+        get_settings.cache_clear()
 
     assert completed["type"] == "transcript.accepted"
     assert completed["complete"] is True
@@ -101,3 +95,64 @@ def test_websocket_reconciles_deltas_and_returns_stable_intent(fixture_mode: Non
     assert intent["should_discover"] is True
     assert intent["change_reasons"] == ["initial"]
     assert intent["intent"]["moods"] == ["cold", "lonely"]
+
+
+def test_websocket_streams_candidates_after_a_stable_intent() -> None:
+    with TestClient(app) as client, client.websocket_connect("/ws") as socket:
+        assert socket.receive_json()["type"] == "session.ready"
+        socket.send_json(
+            {
+                "type": "transcript.completed",
+                "event_id": "event-1",
+                "item_id": "item-1",
+                "transcript": "A lonely cobalt observatory, cinematic and cold",
+            }
+        )
+        assert socket.receive_json()["type"] == "transcript.accepted"
+        intent = socket.receive_json()
+        batch = socket.receive_json()
+
+    assert intent["type"] == "intent.updated"
+    assert intent["should_discover"] is True
+    assert batch["type"] == "candidates.batch"
+    assert batch["revision"] == intent["revision"]
+    assert batch["candidates"]
+    for candidate in batch["candidates"]:
+        assert candidate["lane"] == "open"
+        assert candidate["title"]
+        assert candidate["licence"]
+        assert candidate["width"] and candidate["height"]
+        assert candidate["image_url"].startswith("http://localhost:8000/api/image?url=")
+
+
+def test_websocket_does_not_rediscover_an_unchanged_subject() -> None:
+    with TestClient(app) as client, client.websocket_connect("/ws") as socket:
+        socket.receive_json()
+        for index, transcript in enumerate(
+            ["A cobalt observatory", "A cobalt observatory, cinematic"]
+        ):
+            socket.send_json(
+                {
+                    "type": "transcript.completed",
+                    "event_id": f"event-{index}",
+                    "item_id": f"item-{index}",
+                    "transcript": transcript,
+                }
+            )
+        # accepted, intent, batch for the first turn; accepted, intent for the second.
+        messages = [socket.receive_json() for _ in range(5)]
+        # Long enough for a second discovery to have cleared its debounce.
+        time.sleep(1.5)
+        socket.send_json({"type": "ping", "event_id": "ping-1"})
+        following = socket.receive_json()
+
+    assert sorted(message["type"] for message in messages) == [
+        "candidates.batch",
+        "intent.updated",
+        "intent.updated",
+        "transcript.accepted",
+        "transcript.accepted",
+    ]
+    # The second turn sharpens the intent but names the same subject, so the
+    # grid is not refilled and nothing else is waiting behind the pong.
+    assert following == {"type": "pong", "event_id": "ping-1"}
