@@ -77,6 +77,7 @@ class VisualIntent(StrictModel):
 
 
 IntentSource = Literal["fixture", "local", "pioneer"]
+IdeaSource = Literal["local", "openai"]
 IntentChangeReason = Literal[
     "initial",
     "subject",
@@ -109,6 +110,14 @@ class IntentUpdated(StrictModel):
     source: IntentSource
     should_discover: bool = False
     change_reasons: list[IntentChangeReason] = Field(default_factory=list)
+
+
+class IdeasUpdated(StrictModel):
+    type: Literal["ideas.updated"] = "ideas.updated"
+    revision: int
+    ideas: list[str]
+    keywords: list[str]
+    source: IdeaSource
 
 
 CandidateLane = Literal["cited", "open"]
@@ -159,6 +168,7 @@ ServerMessage = (
     SessionReady
     | TranscriptAccepted
     | IntentUpdated
+    | IdeasUpdated
     | CandidatesBatch
     | LedgerUpdated
     | Pong

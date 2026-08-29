@@ -68,9 +68,15 @@ export function parseHealthResponse(value: unknown): HealthResponse | null {
 }
 
 export {
+  type Candidate,
+  type CandidateLane,
+  type CandidatesBatch,
   type ClientMessage,
   type ConnectionState,
+  type IdeaSource,
+  type IdeasUpdated,
   type IntentUpdated,
+  type LedgerUpdated,
   parseRealtimeTokenResponse,
   parseServerMessage,
   type ServerMessage,

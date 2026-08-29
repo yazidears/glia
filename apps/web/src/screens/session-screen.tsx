@@ -1,6 +1,9 @@
 import type { ConnectionState } from '@glia/api-client'
 import { Mic } from 'lucide-react'
-import { useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { EntryLoader } from '@/components/entry-loader'
+import { IntentHud } from '@/components/intent-hud'
+import { LandingReferenceArc } from '@/components/landing-reference-arc'
 import { PinRail } from '@/components/pin-rail'
 import { SettingsDialog } from '@/components/settings-dialog'
 import { TranscriptList } from '@/components/transcript-list'
@@ -9,6 +12,7 @@ import { Workpane } from '@/components/workpane'
 import { useAudioLevel } from '@/hooks/use-audio-level'
 import { useMicrophone } from '@/hooks/use-microphone'
 import { useRealtimeTranscription } from '@/hooks/use-realtime-transcription'
+import { useVoiceCommands } from '@/hooks/use-voice-commands'
 import { cn } from '@/lib/utils'
 import { type MicState, useSessionStore } from '@/stores/session'
 
@@ -31,14 +35,17 @@ function captionFor(micState: MicState, connectionState: ConnectionState): strin
 }
 
 export function SessionScreen() {
+  const [isBooting, setIsBooting] = useState(true)
   const { micState, toggle } = useMicrophone()
   const audio = useAudioLevel()
   useRealtimeTranscription(audio)
+  useVoiceCommands()
   const phase = useSessionStore((state) => state.phase)
   const connectionState = useSessionStore((state) => state.connectionState)
   const isSession = phase === 'session'
   const isListening = micState === 'granted'
   const caption = captionFor(micState, connectionState)
+  const finishBoot = useCallback(() => setIsBooting(false), [])
 
   useEffect(() => {
     document.title = 'Glia'
@@ -52,7 +59,15 @@ export function SessionScreen() {
 
       <SettingsDialog />
 
-      <section className="session-hero" data-hidden={isSession} aria-hidden={isSession}>
+      <LandingReferenceArc hidden={isSession} />
+
+      {isBooting ? <EntryLoader onComplete={finishBoot} /> : null}
+
+      <section
+        className="session-hero"
+        data-hidden={isSession || isBooting}
+        aria-hidden={isSession || isBooting}
+      >
         <p>Speak until you see it.</p>
         <h1>Speak your mind.</h1>
         <p>Describe the image you can feel but cannot quite prompt.</p>
@@ -66,6 +81,7 @@ export function SessionScreen() {
             </div>
           </section>
           <Workpane />
+          <IntentHud />
         </div>
       ) : null}
 
@@ -79,6 +95,8 @@ export function SessionScreen() {
         aria-label={`${caption}. ${isListening ? 'Stop listening' : 'Start listening'}`}
         className={cn('session-mic', isListening && 'is-listening')}
         data-docked={isSession}
+        data-booting={isBooting}
+        disabled={isBooting}
       >
         <span className="session-mic-orb">
           <Mic

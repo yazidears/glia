@@ -17,8 +17,11 @@ MAX_RUNGS = 3
 
 _NOISE = frozenset(
     {
+        "color",
+        "colour",
         "image",
         "images",
+        "headquarters",
         "kind",
         "photo",
         "photos",
@@ -31,10 +34,44 @@ _NOISE = frozenset(
     }
 )
 
+# Wikimedia and Openverse rank English search terms much more reliably than
+# short translated nouns. Keep this deliberately small and exact: these are
+# known demo subjects, not a general-purpose translation layer. Matching the
+# complete cleaned subject means names and longer phrases stay untouched.
+_SUBJECT_ALIASES: dict[tuple[str, ...], tuple[str, ...]] = {
+    ("coches",): ("cars",),
+    ("cotxes",): ("cars",),
+    ("voitures",): ("cars",),
+    ("gatos",): ("cats",),
+    ("gats",): ("cats",),
+    ("chats",): ("cats",),
+    ("perros",): ("dogs",),
+    ("gossos",): ("dogs",),
+    ("chiens",): ("dogs",),
+    ("gatos", "perros"): ("cats", "dogs"),
+    ("gats", "gossos"): ("cats", "dogs"),
+    ("chats", "chiens"): ("cats", "dogs"),
+    ("manzanas", "verdes"): ("green", "apples"),
+    ("pomes", "verdes"): ("green", "apples"),
+    ("pommes", "vertes"): ("green", "apples"),
+    ("avioneta", "militar"): ("military", "aircraft"),
+    ("avioneta", "militars"): ("military", "aircraft"),
+    ("avioneta", "militares"): ("military", "aircraft"),
+}
+
+_PALETTE_ALIASES = {
+    "azul": "blue",
+    "blau": "blue",
+    "bleu": "blue",
+    "verde": "green",
+    "verd": "green",
+    "vert": "green",
+}
+
 
 def build_queries(intent: VisualIntent) -> tuple[str, ...]:
     """Return the query ladder for one intent, sharpest first, possibly empty."""
-    words = _words(intent.subject)
+    words = _search_subject_words(intent.subject)
     if not words:
         return ()
 
@@ -43,9 +80,15 @@ def build_queries(intent: VisualIntent) -> tuple[str, ...]:
     # drops one more from the left.
     core = words[-MAX_SUBJECT_WORDS:]
     ladder: list[str] = []
+    palette = _palette_sharpener(intent, taken=set(core))
     sharpeners = _sharpeners(intent, taken=set(core))
-    if sharpeners and len(core) < MAX_SUBJECT_WORDS:
-        ladder.append(" ".join([*core, *sharpeners]))
+    if len(core) < MAX_SUBJECT_WORDS:
+        if palette:
+            # Colour is an adjective in the search corpora: "blue cars" is
+            # materially less ambiguous than either "cars blue" or "coches".
+            ladder.append(" ".join([palette, *core]))
+        elif sharpeners:
+            ladder.append(" ".join([*core, *sharpeners]))
     for start in range(len(core)):
         ladder.append(" ".join(core[start:]))
 
@@ -82,6 +125,25 @@ def _sharpeners(intent: VisualIntent, *, taken: set[str]) -> list[str]:
     return sharpeners
 
 
+def _palette_sharpener(intent: VisualIntent, *, taken: set[str]) -> str | None:
+    for term in intent.palette:
+        words = _words(term)
+        if not words:
+            continue
+        colour = _PALETTE_ALIASES.get(words[0], words[0])
+        if colour not in taken:
+            return colour
+    return None
+
+
+def _search_subject_words(value: str) -> list[str]:
+    words = _words(value)
+    return list(_SUBJECT_ALIASES.get(tuple(words), tuple(words)))
+
+
 def _words(value: str) -> list[str]:
     cleaned = [word.strip(".,!?;:()[]{}\"'").lower() for word in value.split()]
-    return [word for word in cleaned if len(word) > 2 and word not in _NOISE and word.isalpha()]
+    words = [word for word in cleaned if len(word) > 2 and word not in _NOISE and word.isalpha()]
+    # Realtime speech providers occasionally repeat the last stable token while reconciling
+    # deltas ("gatos gatos perros"). Searching the repeated form is slower and less relevant.
+    return list(dict.fromkeys(words))

@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from types import SimpleNamespace
 from typing import cast
 
 import pytest
@@ -18,17 +17,11 @@ async def test_openai_broker_mints_a_scoped_transcription_session(
 ) -> None:
     captured: dict[str, object] = {}
 
-    class FakeClientSecrets:
-        def create(self, **kwargs: object) -> SimpleNamespace:
-            captured.update(kwargs)
-            return SimpleNamespace(value="ephemeral-value", expires_at=1_900_000_000)
+    async def fake_post_client_secret(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"value": "ephemeral-value", "expires_at": 1_900_000_000}
 
-    class FakeOpenAI:
-        def __init__(self, **kwargs: object) -> None:
-            captured["client"] = kwargs
-            self.realtime = SimpleNamespace(client_secrets=FakeClientSecrets())
-
-    monkeypatch.setattr(token_module, "_create_openai_client", FakeOpenAI)
+    monkeypatch.setattr(token_module, "_post_openai_client_secret", fake_post_client_secret)
     broker = OpenAIRealtimeTokenBroker(
         Settings(
             environment="test",
@@ -44,8 +37,9 @@ async def test_openai_broker_mints_a_scoped_transcription_session(
         expires_at=1_900_000_000,
         model="gpt-live-transcribe",
     )
-    assert captured["expires_after"] == {"anchor": "created_at", "seconds": 120}
-    session = cast(dict[str, object], captured["session"])
+    body = cast(dict[str, object], captured["body"])
+    assert body["expires_after"] == {"anchor": "created_at", "seconds": 120}
+    session = cast(dict[str, object], body["session"])
     assert session["type"] == "transcription"
     audio = cast(dict[str, object], session["audio"])
     audio_input = cast(dict[str, object], audio["input"])
@@ -53,4 +47,6 @@ async def test_openai_broker_mints_a_scoped_transcription_session(
     assert transcription["model"] == "gpt-live-transcribe"
     assert transcription["languages"] == ["en", "es"]
     assert "turn_detection" not in audio_input
+    assert captured["api_key"] == "test-key"
+    assert captured["safety_identifier"] != "stable-browser-client"
     assert "test-key" not in result.model_dump_json()

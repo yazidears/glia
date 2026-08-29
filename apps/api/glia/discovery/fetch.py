@@ -11,7 +11,7 @@ import ipaddress
 import socket
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
@@ -34,6 +34,12 @@ class ImageStream:
     chunks: AsyncIterator[bytes]
 
 
+@dataclass(frozen=True)
+class TextDocument:
+    final_url: str
+    body: str
+
+
 def host_allowed(host: str, allowlist: tuple[str, ...]) -> bool:
     """Suffix match on label boundaries, so `evil-wikimedia.org` never matches."""
     normalised = host.lower().rstrip(".")
@@ -43,8 +49,8 @@ def host_allowed(host: str, allowlist: tuple[str, ...]) -> bool:
     )
 
 
-def validate_image_url(raw: str, allowlist: tuple[str, ...]) -> str:
-    """Return the URL only if every guard passes; raise FetchRejected otherwise."""
+def validate_remote_url(raw: str, allowlist: tuple[str, ...] | None = None) -> str:
+    """Return a public https URL, optionally constrained to known image hosts."""
     if not raw or len(raw) > MAX_URL_LENGTH:
         raise FetchRejected("URL is missing or too long")
     parts = urlsplit(raw)
@@ -61,10 +67,15 @@ def validate_image_url(raw: str, allowlist: tuple[str, ...]) -> str:
         raise FetchRejected("URL has an invalid port") from error
     if port is not None and port not in ALLOWED_PORTS:
         raise FetchRejected("Only the default https port is fetched")
-    if not host_allowed(host, allowlist):
+    if allowlist is not None and not host_allowed(host, allowlist):
         raise FetchRejected("Host is not an allowed image host")
     _reject_private_addresses(host)
     return raw
+
+
+def validate_image_url(raw: str, allowlist: tuple[str, ...]) -> str:
+    """Return the URL only if every image guard passes; raise FetchRejected otherwise."""
+    return validate_remote_url(raw, allowlist)
 
 
 def _reject_private_addresses(host: str) -> None:
@@ -161,3 +172,80 @@ class ImageFetcher:
         finally:
             await response.aclose()
             await client.aclose()
+
+
+class DocumentFetcher:
+    """Fetch Cala-cited HTML with the same SSRF boundary as discovered images."""
+
+    def __init__(
+        self,
+        *,
+        user_agent: str,
+        max_bytes: int,
+        connect_timeout: float,
+        total_timeout: float,
+        max_redirects: int = 2,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self._user_agent = user_agent
+        self._max_bytes = max_bytes
+        self._timeout = httpx.Timeout(total_timeout, connect=connect_timeout)
+        self._max_redirects = max_redirects
+        self._transport = transport
+
+    async def fetch(self, raw_url: str) -> TextDocument:
+        current = validate_remote_url(raw_url)
+        async with httpx.AsyncClient(
+            timeout=self._timeout,
+            transport=self._transport,
+            follow_redirects=False,
+        ) as client:
+            for hop in range(self._max_redirects + 1):
+                try:
+                    async with client.stream(
+                        "GET",
+                        current,
+                        headers={
+                            "User-Agent": self._user_agent,
+                            "Accept": "text/html,application/xhtml+xml",
+                        },
+                    ) as response:
+                        if response.is_redirect:
+                            if hop >= self._max_redirects:
+                                raise FetchFailed("Cited document redirected too many times")
+                            location = response.headers.get("location")
+                            if not location:
+                                raise FetchFailed("Cited document redirect had no location")
+                            # Every hop starts the full validation chain again. A public page may
+                            # never redirect us into localhost, a private subnet, or plain HTTP.
+                            current = validate_remote_url(urljoin(current, location))
+                            continue
+                        if response.status_code != httpx.codes.OK:
+                            raise FetchFailed("Cited document returned an error")
+                        content_type = (
+                            response.headers.get("content-type", "")
+                            .split(";", maxsplit=1)[0]
+                            .strip()
+                            .lower()
+                        )
+                        if content_type not in {"text/html", "application/xhtml+xml"}:
+                            raise FetchFailed("Cited document was not HTML")
+                        declared = response.headers.get("content-length")
+                        if (
+                            declared is not None
+                            and declared.isdigit()
+                            and int(declared) > self._max_bytes
+                        ):
+                            raise FetchFailed("Cited document exceeds the size cap")
+                        body = bytearray()
+                        async for chunk in response.aiter_bytes():
+                            body.extend(chunk)
+                            if len(body) > self._max_bytes:
+                                raise FetchFailed("Cited document exceeds the size cap")
+                        return TextDocument(
+                            final_url=current,
+                            body=bytes(body).decode(response.encoding or "utf-8", errors="replace"),
+                        )
+                except (httpx.TimeoutException, httpx.NetworkError) as error:
+                    raise FetchFailed("Cited document host did not respond") from error
+        raise FetchFailed("Cited document could not be fetched")

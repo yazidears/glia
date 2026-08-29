@@ -4,7 +4,11 @@ import httpx
 import pytest
 
 from glia.contracts import VisualIntent
-from glia.realtime.distiller import DiscoveryGate, PioneerIntentDistiller
+from glia.realtime.distiller import (
+    DISTILLATION_CONTEXT,
+    DiscoveryGate,
+    PioneerIntentDistiller,
+)
 
 
 @pytest.mark.asyncio
@@ -18,6 +22,10 @@ async def test_pioneer_distiller_uses_native_private_inference_contract() -> Non
         assert request.url == "https://api.pioneer.ai/inference"
         assert request.headers["X-API-Key"] == "test-key"
         assert payload["model_id"] == "job-glia-visual-direction"
+        assert payload["text"] == (
+            f"{DISTILLATION_CONTEXT}"
+            "Un observatori brutalista solitari de color blau cobalt"
+        )
         assert payload["store"] is False
         fields = payload["schema"]["structures"]["visual_direction"]["fields"]
         assert [field["name"] for field in fields] == [

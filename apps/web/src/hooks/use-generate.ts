@@ -1,6 +1,12 @@
 import type { GenerateRequest, GenerateResponse, PinnedRefPayload } from '@glia/api-client'
 import { useCallback } from 'react'
-import { type GenerationStatus, type PinnedRef, useSessionStore } from '@/stores/session'
+import { voiceCommandFor } from '@/lib/voice-commands'
+import {
+  type GenerationStatus,
+  type PinnedRef,
+  type TranscriptSegment,
+  useSessionStore,
+} from '@/stores/session'
 
 // The server caps its own poll at ~45s and answers with a typed timeout rather than hanging.
 // This has to outlast that, or the browser abandons a generation the account has already paid
@@ -76,6 +82,20 @@ export interface GenerateHandle {
   canGenerate: boolean
 }
 
+export function transcriptForGeneration(
+  transcript: string,
+  segments: readonly TranscriptSegment[],
+): string {
+  if (segments.length === 0) {
+    return transcript.trim()
+  }
+  return segments
+    .filter((segment) => voiceCommandFor(segment.text) === null)
+    .map((segment) => segment.text.trim())
+    .filter(Boolean)
+    .join(' ')
+}
+
 /**
  * Turns the session into one image.
  *
@@ -91,23 +111,25 @@ export interface GenerateHandle {
 export function useGenerate(): GenerateHandle {
   const sessionId = useSessionStore((state) => state.sessionId)
   const transcript = useSessionStore((state) => state.transcript)
+  const transcriptSegments = useSessionStore((state) => state.transcriptSegments)
   const pinned = useSessionStore((state) => state.pinned)
   const status = useSessionStore((state) => state.generationStatus)
   const startGenerating = useSessionStore((state) => state.startGenerating)
   const settleGeneration = useSessionStore((state) => state.settleGeneration)
   const failGeneration = useSessionStore((state) => state.failGeneration)
 
-  const ready = Boolean(sessionId) && transcript.trim().length > 0
+  const promptTranscript = transcriptForGeneration(transcript, transcriptSegments)
+  const ready = Boolean(sessionId) && promptTranscript.length > 0
   const canGenerate = ready && status !== 'generating'
 
   const generate = useCallback(() => {
-    if (!sessionId || !transcript.trim() || status === 'generating') {
+    if (!sessionId || !promptTranscript || status === 'generating') {
       return
     }
     startGenerating()
     void requestGeneration({
       session_id: sessionId,
-      transcript,
+      transcript: promptTranscript,
       pins: pinned.map(toPayload),
     })
       .then((result) => {
@@ -138,7 +160,15 @@ export function useGenerate(): GenerateHandle {
           correlationId: error instanceof GenerationError ? error.correlationId : 'unknown',
         })
       })
-  }, [failGeneration, pinned, sessionId, settleGeneration, startGenerating, status, transcript])
+  }, [
+    failGeneration,
+    pinned,
+    promptTranscript,
+    sessionId,
+    settleGeneration,
+    startGenerating,
+    status,
+  ])
 
   return { generate, status, canGenerate }
 }

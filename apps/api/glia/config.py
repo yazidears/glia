@@ -19,8 +19,10 @@ class Settings(BaseSettings):
 
     openai_api_key: SecretStr | None = None
     openai_transcribe_model: str = "gpt-live-transcribe"
-    #: The synthesis call at Generate. One ordinary chat completion, not the realtime model.
-    openai_synthesis_model: str = "gpt-5.5"
+    #: Shared low-latency synthesis model for live directions and the final generation prompt.
+    openai_synthesis_model: str = "gpt-5.6-luna"
+    openai_synthesis_timeout_seconds: float = Field(default=4.0, gt=0, le=8)
+    openai_synthesis_cache_size: int = Field(default=128, ge=1, le=1_000)
     openai_realtime_token_ttl: int = Field(default=600, ge=10, le=7200)
     openai_request_timeout_seconds: float = Field(default=8.0, gt=0, le=30)
 

@@ -55,7 +55,7 @@ export function PinRail() {
           <ul className="pin-thumbs">
             {pinned.map((pin) => (
               <li className="pin-thumb" key={pin.id} title={pin.title}>
-                <span className="pin-thumb-media">
+                <span className="pin-thumb-media" data-pin-id={pin.id}>
                   <Thumbnail pin={pin} />
                 </span>
                 {/*

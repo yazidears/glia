@@ -1,4 +1,12 @@
-import type { ConnectionState, VisualIntent } from '@glia/api-client'
+import type {
+  Candidate,
+  CandidatesBatch,
+  ConnectionState,
+  IdeasUpdated,
+  IntentUpdated,
+  LedgerUpdated,
+  VisualIntent,
+} from '@glia/api-client'
 import { create } from 'zustand'
 
 /** Where the browser's microphone permission currently stands. */
@@ -68,6 +76,8 @@ interface SessionState {
   transcriptSegments: TranscriptSegment[]
   processedWordCount: number
   intent: VisualIntent | null
+  intentUpdate: IntentUpdated | null
+  ideasUpdate: IdeasUpdated | null
   /** The backend's id for this socket, from `session.ready`. Discovery is debounced per session. */
   sessionId: string | null
   /**
@@ -77,9 +87,15 @@ interface SessionState {
    * "not settled" and "the idea did not move" the same no-op for anything keyed on it.
    */
   discoveryTranscript: string
+  candidates: Candidate[]
+  candidateRevision: number | null
+  /** New subject revision waiting for its first batch; old photos remain visible until then. */
+  pendingCandidateRevision: number | null
+  ledger: LedgerUpdated | null
   /** The conditioning input, in click order. Empty means the rail is not on screen at all. */
   pinned: PinnedRef[]
   togglePin: (ref: PinnedRef) => void
+  pinMany: (refs: readonly PinnedRef[]) => void
   clearPins: () => void
   generationStatus: GenerationStatus
   generation: GeneratedImage | null
@@ -96,7 +112,10 @@ interface SessionState {
    * on a settled turn, so a true here already means "the idea moved enough to be worth a
    * credit" — which is exactly the condition discovery is allowed to fire on.
    */
-  setIntent: (intent: VisualIntent, transcript: string, shouldDiscover: boolean) => void
+  setIntent: (intentUpdate: IntentUpdated) => void
+  setIdeas: (ideasUpdate: IdeasUpdated) => void
+  appendCandidates: (batch: CandidatesBatch) => void
+  setLedger: (ledger: LedgerUpdated) => void
   resetRealtime: () => void
 }
 
@@ -107,6 +126,34 @@ interface SessionState {
  */
 function phaseAfter(state: SessionState, transcript: string): SessionPhase {
   return state.phase === 'hero' && transcript.trim() ? 'session' : state.phase
+}
+
+const SUBJECT_SCAFFOLDING = new Set([
+  'and',
+  'amb',
+  'con',
+  'et',
+  'i',
+  'quiero',
+  'unas',
+  'unes',
+  'uns',
+  'vull',
+  'with',
+  'y',
+])
+
+/** Ignore filler, punctuation and duplicated ASR tokens when comparing spoken subjects. */
+function subjectKey(subject: string): string {
+  const tokens = subject
+    .toLocaleLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .match(/[a-z0-9]+/g)
+  if (!tokens) {
+    return ''
+  }
+  return [...new Set(tokens.filter((token) => !SUBJECT_SCAFFOLDING.has(token)))].sort().join(' ')
 }
 
 export const useSessionStore = create<SessionState>()((set) => ({
@@ -121,8 +168,14 @@ export const useSessionStore = create<SessionState>()((set) => ({
   transcriptSegments: [],
   processedWordCount: 0,
   intent: null,
+  intentUpdate: null,
+  ideasUpdate: null,
   sessionId: null,
   discoveryTranscript: '',
+  candidates: [],
+  candidateRevision: null,
+  pendingCandidateRevision: null,
+  ledger: null,
   pinned: [],
   generationStatus: 'idle',
   generation: null,
@@ -133,6 +186,12 @@ export const useSessionStore = create<SessionState>()((set) => ({
         ? state.pinned.filter((pin) => pin.id !== ref.id)
         : [...state.pinned, ref],
     })),
+  pinMany: (refs) =>
+    set((state) => {
+      const pinnedIds = new Set(state.pinned.map((pin) => pin.id))
+      const additions = refs.filter((ref) => !pinnedIds.has(ref.id))
+      return additions.length > 0 ? { pinned: [...state.pinned, ...additions] } : state
+    }),
   clearPins: () => set({ pinned: [] }),
   // The previous result stays on screen while the next one runs. The rail is the only place
   // that says "generating", so the workpane never blanks out the image the user is comparing
@@ -154,11 +213,65 @@ export const useSessionStore = create<SessionState>()((set) => ({
     set((state) => ({
       processedWordCount: Math.max(state.processedWordCount, processedWordCount),
     })),
-  setIntent: (intent, transcript, shouldDiscover) =>
-    set((state) => ({
-      intent,
-      discoveryTranscript: shouldDiscover ? transcript : state.discoveryTranscript,
-    })),
+  setIntent: (intentUpdate) =>
+    set((state) => {
+      const previousSubject = subjectKey(state.intent?.subject ?? '')
+      const nextSubject = subjectKey(intentUpdate.intent.subject)
+      const subjectChanged = Boolean(nextSubject) && previousSubject !== nextSubject
+
+      return {
+        intent: intentUpdate.intent,
+        intentUpdate,
+        ideasUpdate:
+          state.ideasUpdate && state.ideasUpdate.revision >= intentUpdate.revision
+            ? state.ideasUpdate
+            : null,
+        discoveryTranscript: intentUpdate.should_discover
+          ? intentUpdate.transcript
+          : state.discoveryTranscript,
+        // Preserve visual continuity while the next search runs. The pending revision rejects
+        // late batches from the old topic; its first matching batch performs one atomic swap.
+        pendingCandidateRevision: subjectChanged
+          ? intentUpdate.revision
+          : state.pendingCandidateRevision,
+      }
+    }),
+  setIdeas: (ideasUpdate) =>
+    set((state) =>
+      state.ideasUpdate && ideasUpdate.revision < state.ideasUpdate.revision
+        ? state
+        : { ideasUpdate },
+    ),
+  appendCandidates: (batch) =>
+    set((state) => {
+      if (
+        state.pendingCandidateRevision !== null &&
+        batch.revision < state.pendingCandidateRevision
+      ) {
+        return state
+      }
+      if (state.candidateRevision !== null && batch.revision < state.candidateRevision) {
+        return state
+      }
+      if (
+        state.pendingCandidateRevision !== null &&
+        batch.revision >= state.pendingCandidateRevision
+      ) {
+        return {
+          candidates: batch.candidates,
+          candidateRevision: batch.revision,
+          pendingCandidateRevision: null,
+        }
+      }
+      return {
+        candidates:
+          state.candidateRevision === batch.revision
+            ? [...state.candidates, ...batch.candidates]
+            : batch.candidates,
+        candidateRevision: batch.revision,
+      }
+    }),
+  setLedger: (ledger) => set({ ledger }),
   resetRealtime: () =>
     set({
       connectionState: 'idle',
@@ -167,8 +280,14 @@ export const useSessionStore = create<SessionState>()((set) => ({
       transcriptSegments: [],
       processedWordCount: 0,
       intent: null,
+      intentUpdate: null,
+      ideasUpdate: null,
       sessionId: null,
       discoveryTranscript: '',
+      candidates: [],
+      candidateRevision: null,
+      pendingCandidateRevision: null,
+      ledger: null,
       pinned: [],
       generationStatus: 'idle',
       generation: null,

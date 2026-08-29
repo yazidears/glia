@@ -49,6 +49,7 @@ from glia.realtime.distiller import (
     IntentDistiller,
     build_intent_distiller,
 )
+from glia.realtime.ideas import IdeaSynthesizer, build_idea_synthesizer
 from glia.realtime.socket import RealtimeSocketSession
 from glia.realtime.token import (
     OpenAIRealtimeTokenBroker,
@@ -99,7 +100,7 @@ def get_cala_client() -> CalaClient:
 @lru_cache(maxsize=1)
 def get_discovery_service() -> DiscoveryService:
     """One process-wide service so its query cache is shared across sessions."""
-    return build_discovery_service(get_settings())
+    return build_discovery_service(get_settings(), cala_client=get_cala_client())
 
 
 @lru_cache(maxsize=1)
@@ -112,6 +113,11 @@ def get_image_fetcher() -> ImageFetcher:
         connect_timeout=settings.image_fetch_connect_timeout,
         total_timeout=settings.image_fetch_total_timeout,
     )
+
+
+@lru_cache(maxsize=1)
+def get_idea_synthesizer() -> IdeaSynthesizer:
+    return build_idea_synthesizer(get_settings())
 
 
 @router.get("/health")
@@ -128,10 +134,7 @@ async def health(settings: Annotated[Settings, Depends(get_settings)]) -> Health
             if settings.pioneer_api_key
             else "unconfigured"
         ),
-        # The candidate pipeline does not exist yet, so no configuration can make this true.
-        # It becomes a real capability check when discovery lands; until then the client has to
-        # be told plainly that no image can arrive, rather than being allowed to ask for one.
-        image_discovery=False,
+        image_discovery=True,
     )
 
 
@@ -538,6 +541,7 @@ async def realtime_socket(websocket: WebSocket) -> None:
         debounce_ms=settings.realtime_debounce_ms,
         max_message_bytes=settings.realtime_max_message_bytes,
         distiller=build_intent_distiller(settings),
+        idea_synthesizer=get_idea_synthesizer(),
         gate_jaccard_threshold=settings.distill_gate_jaccard_threshold,
         discovery=get_discovery_service(),
         discovery_debounce_ms=settings.discovery_debounce_ms,

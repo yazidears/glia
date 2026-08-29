@@ -56,6 +56,12 @@ VISUAL_DIRECTION_SCHEMA: dict[str, object] = {
     "entities": ["person", "organization", "location", "product", "work_of_art"],
 }
 
+# The tuned multilingual model was trained on explicit visual-direction examples. Bare shopping
+# or conversational phrases can otherwise produce a valid-but-empty structure even when they
+# contain a clear subject (for example, "Quiero unas manzanas verdes"). This is data, not an
+# instruction from a remote page; the prefix gives the encoder the same task context as training.
+DISTILLATION_CONTEXT = "Visual direction requested by the speaker:\n"
+
 
 class DistillationUnavailable(RuntimeError):
     pass
@@ -184,7 +190,7 @@ class PioneerIntentDistiller:
     async def _request(self, transcript: str) -> dict[str, object]:
         payload = {
             "model_id": self._model,
-            "text": transcript,
+            "text": f"{DISTILLATION_CONTEXT}{transcript}",
             "schema": VISUAL_DIRECTION_SCHEMA,
             "threshold": self._threshold,
             "store": False,

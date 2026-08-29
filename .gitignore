@@ -33,6 +33,7 @@ _to_delete/
 playwright-report/
 test-results/
 coverage/
+output/
 *.log
 
 # os / editor

@@ -14,7 +14,9 @@ import structlog
 
 from glia.config import Settings
 from glia.contracts import Candidate, CandidatesBatch
+from glia.discovery.cala import CalaCitedLane, CalaClient
 from glia.discovery.commons import CommonsLane
+from glia.discovery.fetch import DocumentFetcher
 from glia.discovery.lane import ImageLane, LaneUnavailable
 from glia.discovery.merge import proxied, select_new
 from glia.discovery.openverse import OpenverseLane
@@ -145,6 +147,7 @@ class DiscoveryService:
         lane_max_attempts: int,
         allowlist: tuple[str, ...],
         cache_size: int,
+        cala_lane_timeout_seconds: float | None = None,
     ) -> None:
         self._lanes = lanes
         self._proxy_base = proxy_base
@@ -158,30 +161,45 @@ class DiscoveryService:
         self._lane_max_attempts = lane_max_attempts
         self._allowlist = allowlist
         self._cache_size = cache_size
+        self._cala_lane_timeout = cala_lane_timeout_seconds or lane_timeout_seconds
         self._cache: OrderedDict[str, list[Candidate]] = OrderedDict()
 
     async def discover(
-        self, *, queries: Sequence[str], revision: int, emit: Emit
+        self,
+        *,
+        queries: Sequence[str],
+        revision: int,
+        emit: Emit,
+        include_cited: bool = True,
     ) -> list[Candidate]:
         """Emit waves for one query ladder and return everything that shipped."""
         ladder = tuple(query for query in queries if query)
         if not ladder:
             return []
 
-        cached = self._cache.get(ladder[0])
+        lanes = tuple(
+            lane for lane in self._lanes if include_cited or lane.name != "cala"
+        )
+        if not lanes:
+            return []
+
+        # An optimistic open-only result must never satisfy the settled cache lookup: doing so
+        # would silently skip Cala after the user pauses. Keep the two paths independently warm.
+        cache_key = f"{'all' if include_cited else 'open'}:{ladder[0]}"
+        cached = self._cache.get(cache_key)
         if cached is not None:
-            self._cache.move_to_end(ladder[0])
+            self._cache.move_to_end(cache_key)
             await self._emit_waves(cached, revision=revision, emit=emit)
             return cached
 
         queue: asyncio.Queue[list[Candidate]] = asyncio.Queue()
         shipped: list[Candidate] = []
         async with asyncio.TaskGroup() as group:
-            for lane in self._lanes:
+            for lane in lanes:
                 group.create_task(self._run_lane(lane, ladder, queue))
-            group.create_task(self._drain(queue, revision, emit, shipped))
+            group.create_task(self._drain(queue, len(lanes), revision, emit, shipped))
 
-        self._remember(ladder[0], shipped)
+        self._remember(cache_key, shipped)
         return shipped
 
     async def _run_lane(
@@ -195,12 +213,14 @@ class DiscoveryService:
         candidates: list[Candidate] = []
         started = asyncio.get_running_loop().time()
         try:
-            async with asyncio.timeout(self._lane_timeout):
-                for attempt, query in enumerate(ladder[: self._lane_max_attempts]):
+            lane_timeout = self._cala_lane_timeout if lane.name == "cala" else self._lane_timeout
+            max_attempts = 1 if lane.name == "cala" else self._lane_max_attempts
+            async with asyncio.timeout(lane_timeout):
+                for attempt, query in enumerate(ladder[:max_attempts]):
                     elapsed = asyncio.get_running_loop().time() - started
                     # Never start a rung that cannot plausibly finish: a broader
                     # rung timing out would throw away what a sharper one found.
-                    if attempt and elapsed > self._lane_timeout / 2:
+                    if attempt and elapsed > lane_timeout / 2:
                         break
                     found = await lane.search(query)
                     if len(found) > len(candidates):
@@ -216,12 +236,13 @@ class DiscoveryService:
     async def _drain(
         self,
         queue: asyncio.Queue[list[Candidate]],
+        lane_count: int,
         revision: int,
         emit: Emit,
         shipped: list[Candidate],
     ) -> None:
         seen: set[str] = set()
-        remaining = len(self._lanes)
+        remaining = lane_count
         while remaining > 0 and len(shipped) < self._max_candidates:
             batch = [await queue.get()]
             remaining -= 1
@@ -278,12 +299,14 @@ class FixtureImageLane:
         return list(FIXTURE_CANDIDATES)
 
 
-def build_discovery_service(settings: Settings) -> DiscoveryService:
+def build_discovery_service(
+    settings: Settings, *, cala_client: CalaClient | None = None
+) -> DiscoveryService:
     lanes: tuple[ImageLane, ...]
     if settings.demo_mode == "fixture":
         lanes = (FixtureImageLane(),)
     else:
-        lanes = (
+        open_lanes: tuple[ImageLane, ...] = (
             CommonsLane(
                 api_url=settings.commons_api_url,
                 user_agent=settings.image_fetch_user_agent,
@@ -309,6 +332,22 @@ def build_discovery_service(settings: Settings) -> DiscoveryService:
                 ),
             ),
         )
+        if cala_client is not None and cala_client.configured:
+            lanes = (
+                CalaCitedLane(
+                    client=cala_client,
+                    document_fetcher=DocumentFetcher(
+                        user_agent=settings.image_fetch_user_agent,
+                        max_bytes=settings.image_fetch_max_bytes,
+                        connect_timeout=settings.image_fetch_connect_timeout,
+                        total_timeout=settings.image_fetch_total_timeout,
+                    ),
+                    min_seconds_between_queries=settings.cala_min_seconds_between_queries,
+                ),
+                *open_lanes,
+            )
+        else:
+            lanes = open_lanes
     return DiscoveryService(
         lanes=lanes,
         proxy_base=settings.api_base_url,
@@ -322,4 +361,7 @@ def build_discovery_service(settings: Settings) -> DiscoveryService:
         lane_max_attempts=settings.discovery_lane_max_attempts,
         allowlist=settings.image_host_allowlist,
         cache_size=settings.discovery_cache_size,
+        cala_lane_timeout_seconds=(
+            settings.cala_request_timeout_seconds + settings.image_fetch_total_timeout
+        ),
     )

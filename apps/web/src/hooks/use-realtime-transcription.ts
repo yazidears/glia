@@ -8,6 +8,7 @@ import {
 } from '@glia/api-client'
 import { useEffect } from 'react'
 import type { AudioLevelHandle } from '@/hooks/use-audio-level'
+import { couldBeVoiceCommand, voiceCommandFor } from '@/lib/voice-commands'
 import { useSessionStore } from '@/stores/session'
 import { useSettings } from '@/stores/settings'
 
@@ -327,7 +328,10 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
   const setConnection = useSessionStore((state) => state.setConnection)
   const setTranscriptState = useSessionStore((state) => state.setTranscriptState)
   const setIntent = useSessionStore((state) => state.setIntent)
+  const setIdeas = useSessionStore((state) => state.setIdeas)
   const setSessionId = useSessionStore((state) => state.setSessionId)
+  const appendCandidates = useSessionStore((state) => state.appendCandidates)
+  const setLedger = useSessionStore((state) => state.setLedger)
 
   useEffect(() => {
     if (!stream) {
@@ -351,6 +355,7 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
       ]),
     )
     const seenProviderEvents = new Set<string>()
+    const commandCandidates = new Set<string>()
 
     const updateTranscriptItem = (
       itemId: string,
@@ -450,7 +455,13 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
         // `should_discover` is the distiller's gate, evaluated server-side and only on a settled
         // turn. Passing it through is what stops an interim delta — or a turn that did not move
         // the idea — from ever reaching Cala.
-        setIntent(message.intent, message.transcript, message.should_discover)
+        setIntent(message)
+      } else if (message.type === 'ideas.updated') {
+        setIdeas(message)
+      } else if (message.type === 'candidates.batch') {
+        appendCandidates(message)
+      } else if (message.type === 'ledger.updated') {
+        setLedger(message)
       } else if (message.type === 'error' && !message.recoverable) {
         setConnection('error', message.detail)
       }
@@ -493,12 +504,18 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
           false,
           (current, delta) => current + delta,
         )
-        relay({
-          type: 'transcript.delta',
-          event_id: providerEventId,
-          item_id: message.item_id,
-          delta: message.delta,
-        })
+        const currentText = transcriptItems.get(message.item_id)?.text ?? message.delta
+        if (couldBeVoiceCommand(currentText)) {
+          commandCandidates.add(message.item_id)
+        } else {
+          const delta = commandCandidates.delete(message.item_id) ? currentText : message.delta
+          relay({
+            type: 'transcript.delta',
+            event_id: providerEventId,
+            item_id: message.item_id,
+            delta,
+          })
+        }
       } else if (
         message.type === 'conversation.item.input_audio_transcription.completed' &&
         typeof message.transcript === 'string'
@@ -510,12 +527,15 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
           true,
           (_current, transcript) => transcript,
         )
-        relay({
-          type: 'transcript.completed',
-          event_id: providerEventId,
-          item_id: message.item_id,
-          transcript: message.transcript,
-        })
+        commandCandidates.delete(message.item_id)
+        if (!voiceCommandFor(message.transcript)) {
+          relay({
+            type: 'transcript.completed',
+            event_id: providerEventId,
+            item_id: message.item_id,
+            transcript: message.transcript,
+          })
+        }
       }
     })
     events.addEventListener('open', () => {
@@ -605,5 +625,15 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
       peer.close()
       backend?.close()
     }
-  }, [audio, setConnection, setIntent, setSessionId, setTranscriptState, stream])
+  }, [
+    appendCandidates,
+    audio,
+    setConnection,
+    setIntent,
+    setIdeas,
+    setLedger,
+    setSessionId,
+    setTranscriptState,
+    stream,
+  ])
 }

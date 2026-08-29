@@ -202,6 +202,29 @@ async def test_the_same_subject_twice_is_served_from_cache() -> None:
 
 
 @pytest.mark.asyncio
+async def test_open_preview_skips_cala_without_poisoning_the_settled_cache() -> None:
+    cala = StubLane("cala", {"green apples": [candidate("cited")]})
+    commons = StubLane("commons", {"green apples": [candidate("open")]})
+    discovery = service(cala, commons)
+
+    await discovery.discover(
+        queries=("green apples",),
+        revision=1,
+        emit=Collector(),
+        include_cited=False,
+    )
+    await discovery.discover(
+        queries=("green apples",),
+        revision=2,
+        emit=Collector(),
+        include_cited=True,
+    )
+
+    assert cala.queries == ["green apples"]
+    assert commons.queries == ["green apples", "green apples"]
+
+
+@pytest.mark.asyncio
 async def test_an_empty_ladder_never_reaches_a_lane() -> None:
     lane = StubLane("commons", {})
     collector = Collector()

@@ -28,3 +28,23 @@ def test_fast_projector_returns_useful_visual_attributes_without_network() -> No
     assert intent.moods == ["cold", "lonely"]
     assert intent.styles == ["brutalist", "cinematic"]
     assert intent.palette == ["blue", "cobalt"]
+
+
+def test_fast_projector_focuses_latest_span_and_normalizes_spanish_colour() -> None:
+    intent = FastIntentProjector().project(
+        "Tengo una idea de una empresa donde hay unos coches. "
+        "Y los coches son de color azul"
+    )
+
+    assert intent.subject == "coches"
+    assert intent.palette == ["blue"]
+
+
+def test_fast_projector_keeps_a_long_product_conversation_visual() -> None:
+    intent = FastIntentProjector().project(
+        "La gente puede encontrar eventos y hacer click en logos grandes. "
+        "El diseño es minimalista y sirve para comprar tickets para clubs."
+    )
+
+    assert intent.subject == "club ticketing ui"
+    assert intent.styles == ["minimalist"]

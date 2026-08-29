@@ -30,9 +30,9 @@ def normalise_url(raw: str) -> str:
         for param in parts.query.split("&")
         if param and not param.lower().startswith(_TRACKING_PREFIXES)
     )
-    return urlunsplit(
-        (parts.scheme.lower(), parts.netloc.lower(), parts.path, query, "")
-    ).rstrip("/")
+    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path, query, "")).rstrip(
+        "/"
+    )
 
 
 def is_servable(candidate: Candidate, *, min_edge: int, allowlist: tuple[str, ...]) -> bool:
@@ -43,7 +43,21 @@ def is_servable(candidate: Candidate, *, min_edge: int, allowlist: tuple[str, ..
     them is dropped rather than guessed at. Perceptual-hash dedupe of visually
     identical crops is deliberately deferred; URL and title dedupe carry today.
     """
+    if candidate.lane == "cited":
+        # Cala's article pages are fetched and redirect-validated server-side before a candidate
+        # reaches here. Their lead images remain origin URLs so attribution and publisher context
+        # stay intact; the fixed sticker frame does not need guessed remote dimensions.
+        return all(
+            urlsplit(url).scheme.lower() == "https"
+            for url in (candidate.image_url, candidate.source_url)
+        )
     if candidate.width is None or candidate.height is None:
+        return False
+    # Commons can return page thumbnails from PDFs/DjVu documents. They technically render, but
+    # they are scans rather than useful visual references and dominated the live board for broad
+    # Spanish queries. Keep the discovery lane photographic by rejecting document derivatives.
+    document_urls = f"{candidate.image_url} {candidate.source_url}".casefold()
+    if any(extension in document_urls for extension in (".pdf", ".djvu")):
         return False
     if candidate.width < min_edge or candidate.height < min_edge:
         return False
@@ -102,11 +116,15 @@ def _keys(candidate: Candidate) -> list[str]:
 
 
 def proxied(candidates: Iterable[Candidate], *, proxy_base: str) -> list[Candidate]:
-    """Rewrite image_url through our own proxy, leaving the origin as source_url."""
+    """Proxy allowlisted open-corpus images; keep Cala-cited images at their origin."""
     base = proxy_base.rstrip("/")
     return [
-        candidate.model_copy(
-            update={"image_url": f"{base}/api/image?url={quote(candidate.image_url, safe='')}"}
+        (
+            candidate
+            if candidate.lane == "cited"
+            else candidate.model_copy(
+                update={"image_url": f"{base}/api/image?url={quote(candidate.image_url, safe='')}"}
+            )
         )
         for candidate in candidates
     ]

@@ -38,6 +38,18 @@ def test_a_candidate_under_the_minimum_edge_is_dropped() -> None:
     assert is_servable(candidate("c", width=200, height=200), min_edge=200, allowlist=ALLOWLIST)
 
 
+def test_document_page_thumbnails_are_not_visual_references() -> None:
+    assert not is_servable(
+        candidate(
+            "pdf",
+            image_url="https://upload.wikimedia.org/page1-500px-report.pdf.jpg",
+            source_url="https://commons.wikimedia.org/wiki/File:Report.pdf",
+        ),
+        min_edge=200,
+        allowlist=ALLOWLIST,
+    )
+
+
 def test_a_candidate_that_is_not_http_or_https_is_dropped() -> None:
     assert not is_servable(
         candidate("a", image_url="ftp://upload.wikimedia.org/a.jpg"),

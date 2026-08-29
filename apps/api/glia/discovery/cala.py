@@ -16,8 +16,13 @@ There is no second path to Cala, and adding one is how the budget disappears.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import re
+import time
+from html.parser import HTMLParser
 from typing import Any, Final
+from urllib.parse import urljoin
 
 import httpx
 import structlog
@@ -32,7 +37,9 @@ from tenacity import (
 from glia.config import Settings
 from glia.contracts import (
     CalaEntityHit,
+    CalaOrigin,
     CalaSearchResult,
+    Candidate,
     DiscoverResponse,
     EvidenceItem,
     LedgerSnapshot,
@@ -42,6 +49,13 @@ from glia.discovery.budget import (
     SessionDebounce,
     TtlCache,
     cache_key,
+)
+from glia.discovery.fetch import (
+    DocumentFetcher,
+    FetchFailed,
+    FetchRejected,
+    TextDocument,
+    validate_remote_url,
 )
 
 logger = structlog.get_logger(__name__)
@@ -183,6 +197,52 @@ class CalaRetryableError(CalaUpstreamError):
     on 29 Aug 2026 — a cold `knowledge/search` took 45.7s, which a naive read-timeout retry
     turns into three charged queries for one question.
     """
+
+
+class _LeadImageParser(HTMLParser):
+    """Collect declared page images without treating remote markup as trusted HTML."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.open_graph: list[str] = []
+        self.twitter: list[str] = []
+        self.image_src: list[str] = []
+        self.inline: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = {name.lower(): value for name, value in attrs if value is not None}
+        if tag.lower() == "meta":
+            key = (values.get("property") or values.get("name") or "").lower()
+            content = values.get("content")
+            if content and key in {"og:image", "og:image:secure_url"}:
+                self.open_graph.append(content)
+            elif content and key in {"twitter:image", "twitter:image:src"}:
+                self.twitter.append(content)
+        elif tag.lower() == "link" and "image_src" in (values.get("rel") or "").lower():
+            if href := values.get("href"):
+                self.image_src.append(href)
+        elif tag.lower() == "img":
+            if src := values.get("src"):
+                self.inline.append(src)
+
+    @property
+    def candidates(self) -> list[str]:
+        return [*self.open_graph, *self.twitter, *self.image_src, *self.inline]
+
+
+def extract_lead_image(document: TextDocument) -> str | None:
+    """Return the first public https image declared by a Cala-cited page."""
+    parser = _LeadImageParser()
+    try:
+        parser.feed(document.body)
+    except Exception as error:
+        raise FetchFailed("Cited document markup could not be parsed") from error
+    for raw in parser.candidates:
+        try:
+            return validate_remote_url(urljoin(document.final_url, raw))
+        except FetchRejected:
+            continue
+    return None
 
 
 def extract_subject(transcript: str) -> str | None:
@@ -434,3 +494,95 @@ class CalaClient:
             return response.json()
         except ValueError as error:
             raise CalaUpstreamError("Cala returned a body that is not JSON.") from error
+
+
+class CalaCitedLane:
+    """Turn Cala citations into Lane A candidates by reading the cited pages.
+
+    Cala itself returns no image fields. This lane consumes only
+    ``context[].origins[].document.url`` and asks the guarded document fetcher for each page's
+    declared lead image. The browser displays that origin image directly with attribution.
+    """
+
+    name = "cala"
+
+    def __init__(
+        self,
+        *,
+        client: CalaClient,
+        document_fetcher: DocumentFetcher,
+        min_seconds_between_queries: float,
+        max_documents: int = 6,
+    ) -> None:
+        self._client = client
+        self._document_fetcher = document_fetcher
+        self._min_seconds = min_seconds_between_queries
+        self._max_documents = max_documents
+        self._last_attempt_at = 0.0
+        self._cache: dict[str, list[Candidate]] = {}
+
+    async def search(self, query: str) -> list[Candidate]:
+        cached = self._cache.get(query)
+        if cached is not None:
+            return cached
+
+        now = time.monotonic()
+        if now - self._last_attempt_at < self._min_seconds:
+            logger.info("cala.lane.debounced")
+            return []
+        self._last_attempt_at = now
+
+        result, _cached = await self._client.search(query)
+        jobs: list[tuple[EvidenceItem, CalaOrigin]] = []
+        for evidence in join_evidence(result):
+            for origin in evidence.origins:
+                document = origin.document
+                if document is None or not document.url:
+                    continue
+                jobs.append((evidence, origin))
+                if len(jobs) >= self._max_documents:
+                    break
+            if len(jobs) >= self._max_documents:
+                break
+
+        candidates = await asyncio.gather(
+            *(
+                self._candidate(evidence, origin, index)
+                for index, (evidence, origin) in enumerate(jobs)
+            )
+        )
+        found = [candidate for candidate in candidates if candidate is not None]
+        self._cache[query] = found
+        return found
+
+    async def _candidate(
+        self,
+        evidence: EvidenceItem,
+        origin: CalaOrigin,
+        index: int,
+    ) -> Candidate | None:
+        document = origin.document
+        if document is None or not document.url:
+            return None
+        try:
+            page = await self._document_fetcher.fetch(document.url)
+            image_url = extract_lead_image(page)
+        except (FetchFailed, FetchRejected):
+            return None
+        if image_url is None:
+            return None
+
+        digest = hashlib.sha256(f"{page.final_url}\0{image_url}".encode()).hexdigest()[:20]
+        publisher = origin.source.name if origin.source is not None else None
+        return Candidate(
+            id=f"cala:{digest}",
+            lane="cited",
+            image_url=image_url,
+            source_url=page.final_url,
+            publisher=publisher,
+            title=document.name,
+            evidence=evidence.content,
+            width=None,
+            height=None,
+            score=round(max(0.5, 1.0 - index * 0.06), 4),
+        )

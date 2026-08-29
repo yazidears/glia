@@ -1,5 +1,14 @@
+import type { Candidate } from '@glia/api-client'
 import { Pin } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { flushSync } from 'react-dom'
+import {
+  candidateToPinnedRef,
+  DEMO_STICKERS,
+  demoRevealCount,
+  demoStickerToPinnedRef,
+  IDEA_BOARD_PAGE_SIZE,
+} from '@/lib/pinned-references'
 import { cn } from '@/lib/utils'
 import { type PinnedRef, useSessionStore } from '@/stores/session'
 
@@ -21,21 +30,102 @@ interface IdeaBoardProps {
   className?: string | undefined
 }
 
-interface StickerSpec {
-  id: string
-  title: string
-  lane: 'cited page' | 'open'
-  variant: number
+function CandidateSticker({
+  candidate,
+  index,
+  onToggle,
+}: {
+  candidate: Candidate
+  index: number
+  onToggle: (source: HTMLElement) => void
+}) {
+  const title = candidate.title ?? candidate.publisher ?? 'Visual reference'
+  return (
+    <figure className={cn('idea-sticker', `idea-sticker--${index + 1}`)}>
+      <button
+        type="button"
+        className="sticker-art sticker-select"
+        aria-label={`Pin ${title}`}
+        onClick={(event) => onToggle(event.currentTarget)}
+      >
+        <img alt="" decoding="async" loading="lazy" src={candidate.image_url} />
+      </button>
+      <figcaption className="sr-only">{title}</figcaption>
+      <span className="sticker-lane">
+        {candidate.lane} · {candidate.publisher ?? 'open corpus'}
+      </span>
+      <button
+        type="button"
+        className="pin-button"
+        aria-label={`Pin ${title}`}
+        aria-pressed="false"
+        onClick={(event) => {
+          const source = event.currentTarget
+            .closest('figure')
+            ?.querySelector<HTMLElement>('.sticker-select')
+          onToggle(source ?? event.currentTarget)
+        }}
+      >
+        <Pin aria-hidden="true" strokeWidth={1.8} />
+      </button>
+    </figure>
+  )
 }
 
-const STICKERS: StickerSpec[] = [
-  { id: 'observatory', title: 'Cobalt observatory', lane: 'cited page', variant: 0 },
-  { id: 'brutalist-sun', title: 'Brutalist sun study', lane: 'open', variant: 1 },
-  { id: 'quiet-coast', title: 'Quiet Mediterranean', lane: 'open', variant: 2 },
-  { id: 'red-editorial', title: 'Red editorial forms', lane: 'cited page', variant: 3 },
-  { id: 'night-arch', title: 'Night architecture', lane: 'open', variant: 4 },
-  { id: 'blue-type', title: 'Blue type fragment', lane: 'cited page', variant: 5 },
-]
+function pinDestination(id: string): HTMLElement | null {
+  return (
+    [...document.querySelectorAll<HTMLElement>('[data-pin-id]')].find(
+      (element) => element.dataset.pinId === id,
+    ) ?? null
+  )
+}
+
+/** Shared-element flight: the board image supplies the start, and the real rail tile is the end. */
+function flyToPinRail(source: HTMLElement, pinId: string, pin: () => void): void {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    pin()
+    return
+  }
+
+  const start = source.getBoundingClientRect()
+  const flight = source.cloneNode(true) as HTMLElement
+  flight.className = 'pin-flight'
+  flight.setAttribute('aria-hidden', 'true')
+  Object.assign(flight.style, {
+    top: `${start.top}px`,
+    left: `${start.left}px`,
+    width: `${start.width}px`,
+    height: `${start.height}px`,
+  })
+  document.body.append(flight)
+
+  flushSync(pin)
+  requestAnimationFrame(() => {
+    const destination = pinDestination(pinId)
+    if (!destination) {
+      flight.remove()
+      return
+    }
+    const end = destination.getBoundingClientRect()
+    const easing =
+      getComputedStyle(document.documentElement).getPropertyValue('--ease-in-out').trim() ||
+      'cubic-bezier(0.77, 0, 0.175, 1)'
+    const animation = flight.animate(
+      [
+        { opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)' },
+        {
+          opacity: 0.92,
+          transform: `translate3d(${end.left - start.left}px, ${end.top - start.top}px, 0) scale(${end.width / start.width})`,
+        },
+      ],
+      { duration: 240, easing, fill: 'forwards' },
+    )
+    void animation.finished.then(
+      () => flight.remove(),
+      () => flight.remove(),
+    )
+  })
+}
 
 function StickerArt({ variant }: { variant: number }) {
   if (variant === 0) {
@@ -119,13 +209,22 @@ function StickerArt({ variant }: { variant: number }) {
 
 export function IdeaBoard({ className }: IdeaBoardProps) {
   const transcript = useSessionStore((state) => state.transcript)
+  const intentUpdate = useSessionStore((state) => state.intentUpdate)
+  const candidates = useSessionStore((state) => state.candidates)
   const setProcessedWordCount = useSessionStore((state) => state.setProcessedWordCount)
   const pinned = useSessionStore((state) => state.pinned)
   const togglePin = useSessionStore((state) => state.togglePin)
   const [revealedCount, setRevealedCount] = useState(0)
   const wordCount = transcript.trim() ? transcript.trim().split(/\s+/).length : 0
-  const suggestedCount =
-    wordCount < 3 ? 0 : Math.min(STICKERS.length, Math.ceil((wordCount - 2) / 3) * 2)
+  const suggestedCount = demoRevealCount(wordCount)
+  const pinnedIds = new Set(pinned.map((pin) => pin.id))
+  const visibleCandidates = candidates
+    .filter((candidate) => !pinnedIds.has(candidate.id))
+    .slice(0, IDEA_BOARD_PAGE_SIZE)
+  const visibleStickers = DEMO_STICKERS.filter((sticker) => !pinnedIds.has(sticker.id)).slice(
+    0,
+    revealedCount,
+  )
 
   useEffect(() => {
     if (suggestedCount <= revealedCount) {
@@ -135,46 +234,54 @@ export function IdeaBoard({ className }: IdeaBoardProps) {
     setProcessedWordCount(wordCount)
   }, [revealedCount, setProcessedWordCount, suggestedCount, wordCount])
 
-  // A sticker is inline SVG with no public URL, so it pins with `imageUrl: null`. fal fetches
-  // references over the internet and cannot reach it; the honest consequence is that this pin
-  // steers the prompt through its title and is not counted as a reference image.
-  const refFor = (sticker: StickerSpec): PinnedRef => ({
-    id: sticker.id,
-    title: sticker.title,
-    lane: sticker.lane,
-    imageUrl: null,
-    sourceUrl: null,
-  })
+  const pinFrom = (source: HTMLElement, ref: PinnedRef): void => {
+    flyToPinRail(source, ref.id, () => togglePin(ref))
+  }
 
   return (
     <section
       aria-label="Evolving visual references"
       className={cn('idea-board min-h-0 overflow-hidden p-3 md:p-6', className)}
     >
-      {STICKERS.slice(0, revealedCount).map((sticker, index) => {
-        const isPinned = pinned.some((pin) => pin.id === sticker.id)
-        return (
-          <figure
-            className={cn('idea-sticker', `idea-sticker--${index + 1}`, isPinned && 'is-pinned')}
-            key={sticker.id}
-          >
-            <div className="sticker-art">
-              <StickerArt variant={sticker.variant} />
-            </div>
-            <figcaption className="sr-only">{sticker.title}</figcaption>
-            <span className="sticker-lane">demo · {sticker.lane}</span>
-            <button
-              type="button"
-              className="pin-button"
-              aria-label={`${isPinned ? 'Unpin' : 'Pin'} ${sticker.title}`}
-              aria-pressed={isPinned}
-              onClick={() => togglePin(refFor(sticker))}
-            >
-              <Pin aria-hidden="true" strokeWidth={1.8} />
-            </button>
-          </figure>
-        )
-      })}
+      {candidates.length > 0
+        ? visibleCandidates.map((candidate, index) => (
+            <CandidateSticker
+              candidate={candidate}
+              index={index}
+              key={candidate.id}
+              onToggle={(source) => pinFrom(source, candidateToPinnedRef(candidate))}
+            />
+          ))
+        : intentUpdate?.source === 'fixture'
+          ? visibleStickers.map((sticker, index) => (
+              <figure className={cn('idea-sticker', `idea-sticker--${index + 1}`)} key={sticker.id}>
+                <button
+                  type="button"
+                  className="sticker-art sticker-select"
+                  aria-label={`Pin ${sticker.title}`}
+                  onClick={(event) => pinFrom(event.currentTarget, demoStickerToPinnedRef(sticker))}
+                >
+                  <StickerArt variant={sticker.variant} />
+                </button>
+                <figcaption className="sr-only">{sticker.title}</figcaption>
+                <span className="sticker-lane">demo · {sticker.lane}</span>
+                <button
+                  type="button"
+                  className="pin-button"
+                  aria-label={`Pin ${sticker.title}`}
+                  aria-pressed="false"
+                  onClick={(event) => {
+                    const source = event.currentTarget
+                      .closest('figure')
+                      ?.querySelector<HTMLElement>('.sticker-select')
+                    pinFrom(source ?? event.currentTarget, demoStickerToPinnedRef(sticker))
+                  }}
+                >
+                  <Pin aria-hidden="true" strokeWidth={1.8} />
+                </button>
+              </figure>
+            ))
+          : null}
     </section>
   )
 }

@@ -11,7 +11,25 @@ export interface VisualIntent {
 }
 
 export type IntentSource = 'fixture' | 'local' | 'pioneer'
+export type IdeaSource = 'local' | 'openai'
 export type IntentChangeReason = 'initial' | 'subject' | 'medium' | 'era' | 'visual_attributes'
+export type CandidateLane = 'cited' | 'open'
+
+export interface Candidate {
+  id: string
+  lane: CandidateLane
+  image_url: string
+  source_url: string
+  publisher: string | null
+  title: string | null
+  evidence: string | null
+  licence: string | null
+  entity_name: string | null
+  entity_type: string | null
+  width: number | null
+  height: number | null
+  score: number
+}
 
 export interface TranscriptAccepted {
   type: 'transcript.accepted'
@@ -31,6 +49,27 @@ export interface IntentUpdated {
   change_reasons: IntentChangeReason[]
 }
 
+export interface CandidatesBatch {
+  type: 'candidates.batch'
+  revision: number
+  candidates: Candidate[]
+}
+
+export interface IdeasUpdated {
+  type: 'ideas.updated'
+  revision: number
+  ideas: string[]
+  keywords: string[]
+  source: IdeaSource
+}
+
+export interface LedgerUpdated {
+  type: 'ledger.updated'
+  cala_queries: number
+  references: number
+  cited: number
+}
+
 export type ServerMessage =
   | {
       type: 'session.ready'
@@ -40,6 +79,9 @@ export type ServerMessage =
     }
   | TranscriptAccepted
   | IntentUpdated
+  | IdeasUpdated
+  | CandidatesBatch
+  | LedgerUpdated
   | { type: 'pong'; event_id: string }
   | { type: 'error'; code: string; detail: string; recoverable: boolean }
 
@@ -125,6 +167,7 @@ function parseVisualIntent(value: unknown): VisualIntent | null {
 }
 
 const intentSources = new Set<IntentSource>(['fixture', 'local', 'pioneer'])
+const ideaSources = new Set<IdeaSource>(['local', 'openai'])
 const intentChangeReasons = new Set<IntentChangeReason>([
   'initial',
   'subject',
@@ -132,6 +175,43 @@ const intentChangeReasons = new Set<IntentChangeReason>([
   'era',
   'visual_attributes',
 ])
+const candidateLanes = new Set<CandidateLane>(['cited', 'open'])
+
+function parseCandidates(value: unknown): Candidate[] | null {
+  if (!Array.isArray(value)) {
+    return null
+  }
+  const candidates: Candidate[] = []
+  for (const candidate of value) {
+    if (
+      !isRecord(candidate) ||
+      !hasString(candidate, 'id') ||
+      !hasString(candidate, 'lane') ||
+      !hasString(candidate, 'image_url') ||
+      !hasString(candidate, 'source_url') ||
+      !candidateLanes.has(candidate.lane as CandidateLane) ||
+      typeof candidate.score !== 'number'
+    ) {
+      return null
+    }
+    candidates.push({
+      id: candidate.id as string,
+      lane: candidate.lane as CandidateLane,
+      image_url: candidate.image_url as string,
+      source_url: candidate.source_url as string,
+      publisher: typeof candidate.publisher === 'string' ? candidate.publisher : null,
+      title: typeof candidate.title === 'string' ? candidate.title : null,
+      evidence: typeof candidate.evidence === 'string' ? candidate.evidence : null,
+      licence: typeof candidate.licence === 'string' ? candidate.licence : null,
+      entity_name: typeof candidate.entity_name === 'string' ? candidate.entity_name : null,
+      entity_type: typeof candidate.entity_type === 'string' ? candidate.entity_type : null,
+      width: typeof candidate.width === 'number' ? candidate.width : null,
+      height: typeof candidate.height === 'number' ? candidate.height : null,
+      score: candidate.score as number,
+    })
+  }
+  return candidates
+}
 
 export function parseServerMessage(raw: string): ServerMessage | null {
   const value = parseJson(raw)
@@ -185,6 +265,37 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       }
       return null
     }
+    case 'candidates.batch': {
+      const candidates = parseCandidates(value.candidates)
+      if (candidates && hasNumber(value, 'revision')) {
+        return {
+          type: 'candidates.batch',
+          revision: value.revision as number,
+          candidates,
+        }
+      }
+      return null
+    }
+    case 'ideas.updated':
+      if (
+        hasNumber(value, 'revision') &&
+        hasStringArray(value, 'ideas') &&
+        hasStringArray(value, 'keywords') &&
+        hasString(value, 'source') &&
+        ideaSources.has(value.source as IdeaSource)
+      ) {
+        return value as unknown as IdeasUpdated
+      }
+      return null
+    case 'ledger.updated':
+      if (
+        hasNumber(value, 'cala_queries') &&
+        hasNumber(value, 'references') &&
+        hasNumber(value, 'cited')
+      ) {
+        return value as unknown as LedgerUpdated
+      }
+      return null
     case 'pong':
       return hasString(value, 'event_id') ? (value as unknown as ServerMessage) : null
     case 'error':
