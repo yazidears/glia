@@ -1739,8 +1739,13 @@
  * the browser's own print-to-PDF is the export, and it keeps the links live.
  */
 @media print {
+  /*
+   * No `!important` and none needed. This rule is unlayered, and Tailwind v4 puts its own
+   * utilities in cascade layers, so anything in a layer loses to this regardless of its
+   * specificity. `#root` carries no classes, so nothing competes for it in the first place.
+   */
   body > *:not(.report-sheet) {
-    display: none !important;
+    display: none;
   }
 
   .report-sheet {
