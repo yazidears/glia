@@ -123,6 +123,21 @@ export function useAudioLevel(): AudioLevelHandle {
     silentSink.connect(context.destination)
     publish(analyser)
 
+    // Safari suspends Web Audio when a tab spends time in the background, even though the
+    // MediaStream track can remain live. Resume the already-authorised context when Glia becomes
+    // visible again so the button cannot say Listening while its analyser is frozen.
+    const resumeWhenVisible = (): void => {
+      if (
+        document.visibilityState === 'visible' &&
+        context.state !== 'running' &&
+        context.state !== 'closed'
+      ) {
+        void context.resume().catch(() => undefined)
+      }
+    }
+    document.addEventListener('visibilitychange', resumeWhenVisible)
+    window.addEventListener('pageshow', resumeWhenVisible)
+
     let frame: number | null = null
 
     // Detection runs in the analyser loop, not in React, and only while the session is still on
@@ -165,6 +180,8 @@ export function useAudioLevel(): AudioLevelHandle {
         cancelAnimationFrame(frame)
       }
       publish(null)
+      document.removeEventListener('visibilitychange', resumeWhenVisible)
+      window.removeEventListener('pageshow', resumeWhenVisible)
       source.disconnect()
       analyser.disconnect()
       silentSink.disconnect()
