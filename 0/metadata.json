@@ -1,0 +1,97 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "01M16XF5649AS9N7NFD0VJN0DE",
+  "session_id": "d1c43d6e-21c8-4bff-90ba-da78b1d9816f",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-29T14:06:11.481496Z",
+  "branch": "claude/lane-b-image-discovery-dd66ea",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".env.example",
+    "apps/api/glia/api.py",
+    "apps/api/glia/config.py",
+    "apps/api/glia/contracts.py",
+    "apps/api/glia/discovery/budget.py",
+    "apps/api/glia/discovery/cala.py",
+    "apps/api/package.json",
+    "apps/api/pyproject.toml",
+    "apps/api/tests/test_api.py",
+    "apps/api/tests/test_discovery.py",
+    "apps/api/uv.lock",
+    "apps/web/package.json",
+    "apps/web/src/components/evidence-card.tsx",
+    "apps/web/src/components/idea-board.tsx",
+    "apps/web/src/components/settings-dialog.tsx",
+    "apps/web/src/components/ui/dialog.tsx",
+    "apps/web/src/components/ui/select.tsx",
+    "apps/web/src/components/ui/switch.tsx",
+    "apps/web/src/components/waveform.tsx",
+    "apps/web/src/components/workpane.tsx",
+    "apps/web/src/hooks/use-capabilities.ts",
+    "apps/web/src/hooks/use-discovery.ts",
+    "apps/web/src/hooks/use-realtime-transcription.ts",
+    "apps/web/src/index.css",
+    "apps/web/src/screens/session-screen.tsx",
+    "apps/web/src/stores/session.ts",
+    "apps/web/src/stores/settings.ts",
+    "apps/web/vite.config.ts",
+    "docs/PARTNERS.md",
+    "packages/api-client/openapi.json",
+    "packages/api-client/src/index.ts",
+    "packages/api-client/src/schema.d.ts",
+    "pnpm-lock.yaml"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5",
+  "turn_id": "8d524312cd02",
+  "checkpoint_transcript_start": 1577,
+  "transcript_lines_at_start": 1577,
+  "compact_transcript_start": 101,
+  "token_usage": {
+    "input_tokens": 34,
+    "cache_creation_tokens": 18498,
+    "cache_read_tokens": 4461156,
+    "output_tokens": 8511,
+    "api_call_count": 17
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-anthropic-skills:ship-it-2026-08-29T13:59:38.323957Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "anthropic-skills:ship-it"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "8d524312cd02",
+      "timestamp": "2026-08-29T13:59:38.323957Z",
+      "native": {
+        "command": "/anthropic-skills:ship-it"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/anthropic-skills:ship-it",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-29T14:06:11.323221Z",
+    "agent_lines": 4152,
+    "agent_removed": 252,
+    "human_added": 11,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 4163,
+    "total_lines_changed": 4415,
+    "agent_percentage": 99.75084937712344,
+    "metric_version": 2
+  }
+}
