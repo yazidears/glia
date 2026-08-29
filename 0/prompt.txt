@@ -1,0 +1,92 @@
+## G-10 · Session settings
+
+Frontend. One agent. No dependency on G-0/B-1 — it degrades honestly without them.
+
+OBJECTIVE
+
+Glia opens on a bare mic and gives the user no way to say what they want back. That is
+right for the first ten seconds and wrong for everything after: a judge holding the
+laptop wants images, an engineer wants the text and its citations, and the person
+demoing on stage wants to stop the loop spending Cala credits between rehearsals.
+
+You are adding one small control that makes those choices visible without putting a
+single pixel of chrome on the empty screen the product opens with. The bar is that
+somebody who never opens it never notices it exists.
+
+CONTEXT
+
+Read apps/web/src/screens/session-screen.tsx, components/{waveform,workpane}.tsx and
+stores/session.ts. Note the two phases: `hero` (centred card) and `session` (1fr/2fr
+grid). The gear must not disturb either — the hero's centring is a shared-element
+transition and nudging it is a visible regression.
+
+Cala returns no images; see docs/STACK.md § "What Cala actually does here". The image
+lane is ticket B-1 and does not exist yet. Do not fake it, do not build a placeholder
+grid, and do not let the option imply a capability the backend does not have.
+
+TASK
+
+1. New store, `src/stores/settings.ts`, separate from the session store — settings
+   outlive a session, session state does not. Zustand with the `persist` middleware
+   into localStorage under one versioned key. Wrap reads in try/catch: a private
+   window or blocked site data must render defaults, not a blank screen.
+
+   output:        'text' | 'images' | 'both'     default 'text' until B-1 lands
+   waveform:      boolean                        default true
+   liveDiscovery: boolean                        default true
+   language:      ExpectedLanguage               default from @glia/api-client
+   showLedger:    boolean                        default false
+
+   `ExpectedLanguage` is already `'ca' | 'en' | 'es' | 'fr'` in contracts.py and flows
+   through the realtime token request. Import the type from @glia/api-client — do not
+   redeclare it in apps/web.
+
+2. The trigger. A gear icon (lucide `Settings`), top-right, ~16px, muted, opacity
+   stepping up on hover and focus. `position: fixed`, outside both phase layouts so it
+   cannot shift the hero mic or the grid. `aria-label="Settings"`. It is the only
+   persistent chrome in the app, so it must read as almost absent.
+
+3. The modal. `shadcn add dialog` (Radix is already a dependency, so this adds no new
+   top-level package). Radix gives you focus trap, Esc and scroll lock — do not
+   hand-roll them. Same neutral palette, generous spacing, no icons per row, section
+   labels in the same small caps the EVIDENCE header already uses.
+
+   Output        segmented: Text · Images · Both
+   Waveform      switch
+   Live discovery switch, with one line under it: "Off pauses Cala queries."
+   Language      select, the four values above
+   Ledger        switch, "Show credit usage"
+
+4. Honest capability gating. Ask the API once what it can do — reuse the existing
+   /health response if it already carries enough, otherwise add one boolean to it
+   (server-side only; do not invent a whole capabilities endpoint for one flag). While
+   the candidate pipeline is absent, Images and Both render disabled with a short
+   reason: "Image discovery not available yet." Never silently accept a setting the
+   product cannot honour.
+
+5. Wiring, smallest possible edits:
+   - waveform: `Waveform` renders null when off. The mic, the dock and the layout
+     positions must not move when it disappears — verify by measurement, not by eye.
+   - liveDiscovery: when off, the client does not send the discovery request at all.
+     This is a credit control, so it gates at the call site, not in the render.
+   - language: feeds the existing realtime token request.
+   - output: expose `useSettings()` and read it in `Workpane` behind one guard.
+     ANOTHER AGENT IS CURRENTLY REWRITING Workpane. If it has uncommitted changes or a
+     conflicting shape, do NOT restructure it — leave the Workpane wiring undone,
+     report it as the one pending item, and finish everything else.
+
+CONSTRAINTS
+
+English throughout. TS strict, no `any`, no non-null `!`. No new animation library —
+the modal uses Radix's own transitions or the existing `motion`. Respect
+prefers-reduced-motion. No secret behind a VITE_ variable. Do not modify README.md or
+docs/. Do not run git commit.
+
+ACCEPTANCE
+
+The gear is invisible until looked for and never moves the hero mic or the grid.
+Toggling the waveform off leaves every other element at the identical measured
+position. Turning live discovery off stops discovery requests, provably — show the
+network panel. Settings survive a reload and render defaults in a private window.
+Images and Both are disabled with a reason. Esc and click-outside close the modal;
+focus returns to the gear. pnpm lint, typecheck and build pass.
