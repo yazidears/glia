@@ -316,7 +316,7 @@ GLiNER2's `schema.structures` is built for exactly this: pull typed fields out o
 ```json
 POST /inference
 {
-  "model_id": "fastino/gliner2-multi-v1",
+  "model_id": "b520c775-127f-4db6-922c-da63b82b5020",
   "text": "<the settled transcript window>",
   "schema": {
     "structures": [{
@@ -363,7 +363,9 @@ Otherwise: update the UI from local state and spend nothing. Log the gate decisi
 | Encoders (trainable) | `fastino/gliner2-base-v1`, `fastino/gliner2-large-v1`, `fastino/gliner2-multi-v1`, `fastino/gliner2-multi-large-v1` |
 | Encoders (inference only) | `fastino/gliguard-LLMGuardrails-300M`, `fastino/gliner2-privacy-filter-PII-multi`, `fastino/gliguard-PII-multi` |
 
-Glia uses `gliner2-multi-v1`: it handled Catalan in the live spike while the larger multilingual deployment timed out waiting for provider capacity. Use `gliner2-large-v1` for English quality only when its latency is measured and acceptable.
+Glia uses the fine-tuned job `b520c775-127f-4db6-922c-da63b82b5020`, trained from `fastino/gliner2-multi-v1` on 120 synthetic Catalan, Spanish, and English examples. On the 24 held-out examples, a wrapper-aware local scorer measured field accuracy rising from **72.6% to 84.5%** and completely exact rows from **0/24 to 10/24**. Spanish improved from **60.7% to 85.7%**. The Pioneer evaluation endpoint reported F1 0 because it compared the unwrapped expected structure with the observed `result.data` envelope, so Glia records both that provider result and the direct field-level comparison rather than presenting the zero as model quality.
+
+The tuned model uses an inference threshold of `0.3`. A live Catalan request returned all seven visual fields in one structure in 1.12 seconds; the base model duplicated the structure and included the surrounding phrase in `mood`. The larger multilingual deployment timed out waiting for provider capacity, so it is not on the demo path.
 
 ### Drop-in usage
 
