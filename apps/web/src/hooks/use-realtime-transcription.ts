@@ -18,6 +18,7 @@ type UnknownRecord = Record<string, unknown>
 interface TranscriptItem {
   order: number
   text: string
+  complete: boolean
 }
 
 class RealtimeProviderError extends Error {
@@ -171,71 +172,119 @@ function parseOpenAIEvent(raw: string): UnknownRecord | null {
 export function useRealtimeTranscription(): void {
   const stream = useSessionStore((state) => state.stream)
   const setConnection = useSessionStore((state) => state.setConnection)
-  const setTranscript = useSessionStore((state) => state.setTranscript)
+  const setTranscriptState = useSessionStore((state) => state.setTranscriptState)
   const setIntent = useSessionStore((state) => state.setIntent)
   const resetRealtime = useSessionStore((state) => state.resetRealtime)
 
   useEffect(() => {
     if (!stream) {
-      resetRealtime()
+      setConnection('idle')
       return
     }
+
+    resetRealtime()
 
     const controller = new AbortController()
     const peer = new RTCPeerConnection()
     const events = peer.createDataChannel('oai-events')
     let backend: WebSocket | null = null
+    let providerTranscriptionSeen = false
     let nextItemOrder = 0
     const transcriptItems = new Map<string, TranscriptItem>()
+    const seenProviderEvents = new Set<string>()
 
     const updateTranscriptItem = (
       itemId: string,
       value: string,
+      complete: boolean,
       update: (current: string, incoming: string) => string,
     ): void => {
       const current = transcriptItems.get(itemId)
+      if (current?.complete && !complete) {
+        return
+      }
       transcriptItems.set(itemId, {
         order: current?.order ?? nextItemOrder++,
         text: update(current?.text ?? '', value),
+        complete,
       })
-      const transcript = [...transcriptItems.values()]
-        .sort((left, right) => left.order - right.order)
-        .map((item) => item.text.trim())
-        .filter(Boolean)
+      const orderedItems = [...transcriptItems.entries()].sort(
+        (left, right) => left[1].order - right[1].order,
+      )
+      const transcript = orderedItems
+        .map(([, item]) => item.text.trim())
+        .filter((text) => text.length > 0)
         .join(' ')
-      setTranscript(transcript)
+      setTranscriptState(
+        transcript,
+        orderedItems
+          .map(([segmentItemId, item]) => ({
+            itemId: segmentItemId,
+            text: item.text.trim(),
+            complete: item.complete,
+          }))
+          .filter((item) => item.text.length > 0),
+      )
     }
 
     setConnection('connecting')
 
     const onBackendMessage = (event: MessageEvent<string>): void => {
+      if (controller.signal.aborted) {
+        return
+      }
       const message = parseServerMessage(event.data)
       if (!message) {
         return
       }
       if (message.type === 'transcript.accepted') {
-        setTranscript(message.transcript)
+        // Provider events paint locally with zero round-trip latency. Backend echoes can arrive
+        // one delta behind, so they are only the source of truth for the deterministic fixture.
+        if (providerTranscriptionSeen) {
+          return
+        }
+        updateTranscriptItem(
+          message.item_id,
+          message.transcript,
+          message.complete,
+          (_current, transcript) => transcript,
+        )
       } else if (message.type === 'intent.updated') {
-        setIntent(message.intent, message.transcript)
+        setIntent(message.intent)
       } else if (message.type === 'error' && !message.recoverable) {
         setConnection('error', message.detail)
       }
     }
 
     events.addEventListener('message', (event: MessageEvent<string>) => {
+      if (controller.signal.aborted) {
+        return
+      }
       const message = parseOpenAIEvent(event.data)
       if (!message || typeof message.type !== 'string' || typeof message.item_id !== 'string') {
         return
       }
+      const providerEventId =
+        typeof message.event_id === 'string' ? message.event_id : crypto.randomUUID()
+      if (seenProviderEvents.has(providerEventId)) {
+        return
+      }
+      seenProviderEvents.add(providerEventId)
       if (
         message.type === 'conversation.item.input_audio_transcription.delta' &&
         typeof message.delta === 'string'
       ) {
-        updateTranscriptItem(message.item_id, message.delta, (current, delta) => current + delta)
+        providerTranscriptionSeen = true
+        updateTranscriptItem(
+          message.item_id,
+          message.delta,
+          false,
+          (current, delta) => current + delta,
+        )
         if (backend) {
           send(backend, {
             type: 'transcript.delta',
-            event_id: crypto.randomUUID(),
+            event_id: providerEventId,
             item_id: message.item_id,
             delta: message.delta,
           })
@@ -244,15 +293,17 @@ export function useRealtimeTranscription(): void {
         message.type === 'conversation.item.input_audio_transcription.completed' &&
         typeof message.transcript === 'string'
       ) {
+        providerTranscriptionSeen = true
         updateTranscriptItem(
           message.item_id,
           message.transcript,
+          true,
           (_current, transcript) => transcript,
         )
         if (backend) {
           send(backend, {
             type: 'transcript.completed',
-            event_id: crypto.randomUUID(),
+            event_id: providerEventId,
             item_id: message.item_id,
             transcript: message.transcript,
           })
@@ -323,5 +374,5 @@ export function useRealtimeTranscription(): void {
       peer.close()
       backend?.close()
     }
-  }, [resetRealtime, setConnection, setIntent, setTranscript, stream])
+  }, [resetRealtime, setConnection, setIntent, setTranscriptState, stream])
 }

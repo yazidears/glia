@@ -4,6 +4,12 @@ import { create } from 'zustand'
 /** Where the browser's microphone permission currently stands. */
 export type MicState = 'idle' | 'requesting' | 'granted' | 'denied' | 'unsupported'
 
+export interface TranscriptSegment {
+  itemId: string
+  text: string
+  complete: boolean
+}
+
 interface SessionState {
   micState: MicState
   /** The live capture stream while `micState` is `granted`, and null in every other state. */
@@ -13,10 +19,11 @@ interface SessionState {
   connectionState: ConnectionState
   connectionError: string | null
   transcript: string
+  transcriptSegments: TranscriptSegment[]
   intent: VisualIntent | null
   setConnection: (connectionState: ConnectionState, connectionError?: string | null) => void
-  setTranscript: (transcript: string) => void
-  setIntent: (intent: VisualIntent, transcript: string) => void
+  setTranscriptState: (transcript: string, transcriptSegments: TranscriptSegment[]) => void
+  setIntent: (intent: VisualIntent) => void
   resetRealtime: () => void
 }
 
@@ -27,11 +34,18 @@ export const useSessionStore = create<SessionState>()((set) => ({
   connectionState: 'idle',
   connectionError: null,
   transcript: '',
+  transcriptSegments: [],
   intent: null,
   setConnection: (connectionState, connectionError = null) =>
     set({ connectionState, connectionError }),
-  setTranscript: (transcript) => set({ transcript }),
-  setIntent: (intent, transcript) => set({ intent, transcript }),
+  setTranscriptState: (transcript, transcriptSegments) => set({ transcript, transcriptSegments }),
+  setIntent: (intent) => set({ intent }),
   resetRealtime: () =>
-    set({ connectionState: 'idle', connectionError: null, transcript: '', intent: null }),
+    set({
+      connectionState: 'idle',
+      connectionError: null,
+      transcript: '',
+      transcriptSegments: [],
+      intent: null,
+    }),
 }))
