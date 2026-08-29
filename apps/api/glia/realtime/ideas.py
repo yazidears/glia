@@ -47,7 +47,7 @@ class IdeaSynthesizer(Protocol):
 class LocalIdeaSynthesizer:
     async def synthesize(self, transcript: str, intent: VisualIntent) -> IdeaResult:
         queries = _local_search_queries(transcript, intent)
-        keywords = _intent_terms(intent)
+        keywords = _local_ui_keywords(transcript, intent)
         # Ideas and keywords are UI copy in the speaker's language. Corpus queries are a
         # separate plan and must never be derived from highlighted words alone.
         ideas = keywords[:3] or [intent.subject]
@@ -263,9 +263,9 @@ def _local_search_queries(transcript: str, intent: VisualIntent) -> list[str]:
     if focus_terms & _FASHION_TERMS and transcript_terms & _FASHION_TERMS:
         if transcript_terms & _MEDITERRANEAN_TERMS:
             return [
-                "Mediterranean fashion",
-                "Mediterranean clothing",
-                "Mediterranean lifestyle",
+                "summer fashion model",
+                "linen summer clothing",
+                "Mediterranean coast lifestyle",
             ]
         return [
             "fashion brand campaign",
@@ -307,6 +307,21 @@ def _local_search_queries(transcript: str, intent: VisualIntent) -> list[str]:
     if subject_terms and not subject_terms <= _GENERIC_FOCUS_TERMS:
         return list(build_queries(intent))
     return []
+
+
+def _local_ui_keywords(transcript: str, intent: VisualIntent) -> list[str]:
+    """Keep highlighting representative of the idea, never just the latest adjective."""
+    transcript_terms = _normalized_terms(transcript)
+    focus_terms = _normalized_terms(" ".join(_intent_terms(intent)))
+    if focus_terms & _FASHION_TERMS and transcript_terms & _FASHION_TERMS:
+        if transcript_terms & _MEDITERRANEAN_TERMS:
+            return ["ropa", "marca mediterránea"]
+        return ["ropa", "marca"] if transcript_terms & _BRAND_TERMS else ["ropa"]
+    if focus_terms & _UI_TERMS and transcript_terms & _UI_TERMS:
+        if transcript_terms & _TICKETING_TERMS:
+            return ["app", "tickets", "clubs"]
+        return [intent.subject, "interfaz"]
+    return _intent_terms(intent)
 
 
 def _normalized_terms(value: str) -> set[str]:

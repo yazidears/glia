@@ -14,7 +14,7 @@ The prompt is a deliverable: it comes back verbatim, including on a timeout, bec
 what we understood you to mean" survives a generation that did not land.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import httpx
@@ -29,7 +29,7 @@ from glia.api import (
     get_reference_resolver,
 )
 from glia.config import Settings, get_settings
-from glia.contracts import PinnedRef, SynthesisedPrompt, VisualIntent
+from glia.contracts import GenerateRequest, PinnedRef, SynthesisedPrompt, VisualIntent
 from glia.discovery.fetch import FetchFailed, ImageBytes
 from glia.generation.fal import (
     FalClient,
@@ -42,6 +42,7 @@ from glia.generation.fal_storage import FalStorage, FalStorageError
 from glia.generation.fixture import FIXTURE_IMAGE_URL
 from glia.generation.references import ReferenceResolver, reference_pins
 from glia.generation.synthesis import (
+    MAX_GROUNDING_NOTES,
     FixturePromptSynthesiser,
     SynthesisUnavailable,
     compose_brief,
@@ -85,11 +86,17 @@ class _StubSynthesiser:
     def __init__(self, prompt: str = "a cobalt observatory over a cold sea") -> None:
         self.prompt = prompt
         self.calls: list[list[PinnedRef]] = []
+        self.grounding: list[list[str]] = []
 
     async def synthesise(
-        self, transcript: str, intent: VisualIntent, pins: list[PinnedRef]
+        self,
+        transcript: str,
+        intent: VisualIntent,
+        pins: list[PinnedRef],
+        grounding: Sequence[str] = (),
     ) -> str:
         self.calls.append(pins)
+        self.grounding.append(list(grounding))
         return self.prompt
 
 
@@ -282,6 +289,76 @@ def test_compose_brief_carries_pin_titles_into_the_synthesis() -> None:
     assert "Pinned references" in brief
 
 
+# ─── grounding ──────────────────────────────────────────────────────────────────
+
+
+def _intent() -> VisualIntent:
+    return VisualIntent(
+        subject="observatory", moods=["cold"], styles=[], palette=["cobalt"], composition=""
+    )
+
+
+def test_an_ungrounded_brief_is_byte_identical_to_the_one_before_grounding() -> None:
+    """The whole safety argument for shipping this on a demo path, as an assertion."""
+    assert compose_brief(TRANSCRIPT, _intent(), [STICKER_PIN], []) == compose_brief(
+        TRANSCRIPT, _intent(), [STICKER_PIN]
+    )
+
+
+def test_grounding_reaches_the_brief_labelled_and_last() -> None:
+    brief = compose_brief(
+        TRANSCRIPT, _intent(), [STICKER_PIN], ["The dome is copper-clad and weathered green."]
+    )
+    assert "copper-clad" in brief
+    assert brief.index("Spoken thinking") < brief.index("Grounding")
+    # The label is the instruction. Without it the model cannot tell whose words these are.
+    assert "visual specificity only" in brief
+
+
+def test_a_long_passage_is_clipped_rather_than_allowed_to_crowd_the_brief() -> None:
+    brief = compose_brief(TRANSCRIPT, _intent(), [], ["concrete " * 200])
+    assert len(brief) < 1_200
+    assert brief.endswith("\u2026")
+
+
+def test_the_brief_carries_at_most_three_passages() -> None:
+    brief = compose_brief(TRANSCRIPT, _intent(), [], ["first", "second", "third", "fourth"])
+    assert "fourth" not in brief
+    assert brief.count("\n- ") == MAX_GROUNDING_NOTES
+
+
+def test_the_contract_bounds_grounding_rather_than_trusting_the_browser() -> None:
+    assert GenerateRequest(session_id="s", transcript="t").grounding == []
+    for rejected in (["x" * 801], ["a"] * 5, [""]):
+        with pytest.raises(ValidationError):
+            GenerateRequest(session_id="s", transcript="t", grounding=rejected)
+
+
+def test_grounding_reaches_the_synthesiser_from_the_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub_transport(_FalRecorder().handler, monkeypatch)
+    synthesiser = _StubSynthesiser()
+    with client_for(FalClient(settings()), synthesiser=synthesiser) as http:
+        http.post("/v1/generate", json=body(grounding=["The dome is copper-clad."]))
+
+    assert synthesiser.grounding == [["The dome is copper-clad."]]
+
+
+def test_a_generation_with_no_discovery_behind_it_still_generates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Discovery is the lane most likely to be down — out of credits, rate limited, debounced.
+    It must not be able to take the image with it."""
+    stub_transport(_FalRecorder().handler, monkeypatch)
+    synthesiser = _StubSynthesiser()
+    with client_for(FalClient(settings()), synthesiser=synthesiser) as http:
+        response = http.post("/v1/generate", json=body())
+
+    assert response.status_code == 200
+    assert synthesiser.grounding == [[]]
+
+
 @pytest.mark.asyncio
 async def test_fixture_synthesis_folds_unfetchable_pins_into_the_prompt() -> None:
     result = await FixtureIntentDistiller().distill(TRANSCRIPT)
@@ -414,7 +491,11 @@ def test_a_broken_synthesis_never_reaches_fal(monkeypatch: pytest.MonkeyPatch) -
 
     class _Broken:
         async def synthesise(
-            self, transcript: str, intent: VisualIntent, pins: list[PinnedRef]
+            self,
+            transcript: str,
+            intent: VisualIntent,
+            pins: list[PinnedRef],
+            grounding: Sequence[str] = (),
         ) -> str:
             raise SynthesisUnavailable("no prompt")
 

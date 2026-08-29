@@ -313,11 +313,11 @@ async def test_full_context_semantic_preview_does_not_wait_for_openai() -> None:
 
     assert discovery.calls == [
         (
-            (
-                "Mediterranean fashion",
-                "Mediterranean clothing",
-                "Mediterranean lifestyle",
-            ),
+                (
+                    "summer fashion model",
+                    "linen summer clothing",
+                    "Mediterranean coast lifestyle",
+                ),
             0,
             False,
         )

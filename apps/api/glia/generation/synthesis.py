@@ -1,4 +1,4 @@
-"""Step (a) of Generate: transcript + distilled intent + pin titles → one image prompt.
+"""Step (a) of Generate: transcript + distilled intent + pin titles + grounding → one prompt.
 
 The prompt this returns is a deliverable, not an internal. It is shown to the user verbatim
 beside the image, which is the reason the output is constrained by a Pydantic schema rather
@@ -6,12 +6,19 @@ than trusted: a prompt we cannot show is a prompt we do not send.
 
 The raw transcript never leaves this module. Summarising it is the entire point of the step —
 speech is personal, and fal receives the summary, never the speech.
+
+Grounding is the fourth input and the only optional one: the passages Cala cited about the
+subject, so the prompt can say what the thing actually looks like rather than only how it felt
+to describe. It is deliberately subordinate — the speaker owns the mood, the style and the
+palette, and research that overrode those would be answering a question nobody asked. Absent
+grounding changes nothing, which is what makes it safe to send from a lane that can fail.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Protocol
 
 import structlog
@@ -30,8 +37,21 @@ _SYSTEM = (
     "distilled from it, and the titles of the references they pinned. Return ONE prompt for a "
     "text-to-image model, under 80 words, naming the subject, mood, style, palette and "
     "composition. Treat the pinned titles as visual steering: fold their qualities into the "
-    "prompt. Write only the prompt itself — no preamble, no quotes, no options, no commentary."
+    "prompt. You may also be given grounding: passages from a knowledge API about the subject. "
+    "Use grounding only for visual specificity — what the subject looks like, its materials, "
+    "setting and period. Never let grounding override the speaker's mood, style or palette, "
+    "never name a source, and never assert a fact an image cannot show. "
+    "Write only the prompt itself — no preamble, no quotes, no options, no commentary."
 )
+
+#: How much of one cited passage the brief carries. Cala returns paragraphs; the prompt is
+#: capped at 80 words, so the tail of a passage cannot reach the image and would only crowd the
+#: speaker's own words out of the model's attention.
+GROUNDING_CHARACTERS = 600
+
+#: The brief carries at most this many passages, in the order the caller sent them — the answer
+#: first, then the context items Cala's own explainability said carried it.
+MAX_GROUNDING_NOTES = 3
 
 
 class SynthesisUnavailable(RuntimeError):
@@ -40,11 +60,20 @@ class SynthesisUnavailable(RuntimeError):
 
 class PromptSynthesiser(Protocol):
     async def synthesise(
-        self, transcript: str, intent: VisualIntent, pins: list[PinnedRef]
+        self,
+        transcript: str,
+        intent: VisualIntent,
+        pins: list[PinnedRef],
+        grounding: Sequence[str] = (),
     ) -> str: ...
 
 
-def compose_brief(transcript: str, intent: VisualIntent, pins: list[PinnedRef]) -> str:
+def compose_brief(
+    transcript: str,
+    intent: VisualIntent,
+    pins: list[PinnedRef],
+    grounding: Sequence[str] = (),
+) -> str:
     """The user-side half of the synthesis call, also the fixture's raw material."""
     lines = [f"Spoken thinking: {transcript.strip()}"]
     attributes = [
@@ -59,18 +88,43 @@ def compose_brief(transcript: str, intent: VisualIntent, pins: list[PinnedRef]) 
     lines.extend(f"{label}: {value}" for label, value in attributes if value)
     if pins:
         lines.append("Pinned references: " + "; ".join(pin.title for pin in pins))
+    notes = [clipped for note in grounding[:MAX_GROUNDING_NOTES] if (clipped := _clip(note))]
+    if notes:
+        # Labelled, and labelled last. The order is part of the instruction: the model reads the
+        # speaker before it reads the research, and the label says which of the two is in charge.
+        lines.append("Grounding (research on the subject — visual specificity only):")
+        lines.extend(f"- {note}" for note in notes)
     return "\n".join(lines)
+
+
+def _clip(note: str) -> str:
+    """Trim one passage to the brief's budget, at a word boundary where there is one."""
+    note = " ".join(note.split())
+    if len(note) <= GROUNDING_CHARACTERS:
+        return note
+    head = note[:GROUNDING_CHARACTERS]
+    cut = head.rfind(" ")
+    return (head[:cut] if cut > GROUNDING_CHARACTERS // 2 else head).rstrip(" ,;:") + "\u2026"
 
 
 class FixturePromptSynthesiser:
     """Deterministic, offline, and shaped like the real thing.
 
     `demo_mode="fixture"` has to hold with the network unplugged, so this composes the prompt
-    from the same three inputs by hand instead of asking for one.
+    from the same inputs by hand instead of asking for one.
+
+    Grounding is accepted and ignored, deliberately. Every other input is a bounded field whose
+    contribution to the 80-word cap can be reasoned about; grounding is free prose from an
+    upstream body, and a fixture that could fail its own contract on a long passage is not a
+    fixture. Compressing it needs the model the live path has and this one does not.
     """
 
     async def synthesise(
-        self, transcript: str, intent: VisualIntent, pins: list[PinnedRef]
+        self,
+        transcript: str,
+        intent: VisualIntent,
+        pins: list[PinnedRef],
+        grounding: Sequence[str] = (),
     ) -> str:
         subject = intent.subject or _leading_clause(transcript)
         clauses = [subject]
@@ -102,13 +156,17 @@ class OpenAIPromptSynthesiser:
         self._settings = settings
 
     async def synthesise(
-        self, transcript: str, intent: VisualIntent, pins: list[PinnedRef]
+        self,
+        transcript: str,
+        intent: VisualIntent,
+        pins: list[PinnedRef],
+        grounding: Sequence[str] = (),
     ) -> str:
         api_key = self._settings.openai_api_key
         if api_key is None or not api_key.get_secret_value():
             raise SynthesisUnavailable("OPENAI_API_KEY is not configured")
 
-        brief = compose_brief(transcript, intent, pins)
+        brief = compose_brief(transcript, intent, pins, grounding)
         timeout = self._settings.openai_request_timeout_seconds
 
         def call() -> str:

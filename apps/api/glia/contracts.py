@@ -343,10 +343,23 @@ class PinnedRef(StrictModel):
     source_url: str | None = Field(default=None, max_length=2_048)
 
 
+#: One quoted piece of Cala's cited research, on its way into the synthesis brief. Bounded here
+#: rather than trusted: this is upstream free text that reaches us back through the browser, and
+#: the brief it lands in is a prompt, so an unbounded string is a prompt-length problem before it
+#: is anything else.
+GroundingNote = Annotated[str, Field(min_length=1, max_length=800)]
+
+
 class GenerateRequest(StrictModel):
     session_id: str = Field(min_length=1, max_length=128)
     transcript: str = Field(min_length=1, max_length=50_000)
     pins: list[PinnedRef] = Field(default_factory=list, max_length=32)
+    #: What Cala already told us about this subject, carried back from `/v1/discover` so the
+    #: prompt can be specific about what the thing actually looks like instead of only how it
+    #: felt to describe. Additive by construction: an empty list reproduces the ungrounded
+    #: synthesis exactly, so a discovery that failed, was debounced, or ran out of credits costs
+    #: the generation nothing.
+    grounding: list[GroundingNote] = Field(default_factory=list, max_length=4)
 
 
 class SynthesisedPrompt(StrictModel):

@@ -174,11 +174,12 @@ async def test_local_fallback_uses_company_context_instead_of_literal_current_wo
 
     result = await LocalIdeaSynthesizer().synthesize(transcript, intent)
 
-    assert result.ideas == ["textil", "tranquilo"]
+    assert result.ideas == ["ropa", "marca mediterránea"]
+    assert result.keywords == ["ropa", "marca mediterránea"]
     assert result.search_queries == [
-        "Mediterranean fashion",
-        "Mediterranean clothing",
-        "Mediterranean lifestyle",
+        "summer fashion model",
+        "linen summer clothing",
+        "Mediterranean coast lifestyle",
     ]
     assert merge_idea_queries(intent, result) == tuple(result.search_queries)
     assert all("textil" not in query.casefold() for query in result.search_queries)

@@ -1874,3 +1874,477 @@
     animation: none;
   }
 }
+
+/*
+ * ─── Session report ─────────────────────────────────────────────────────────
+ *
+ * A document, not a screen. The app is a workspace built for one idea at a time; this is the
+ * thing you send to someone else, so it is set on paper: one measured column, real margins, and
+ * no interface chrome inside the page itself. Everything that is a control sits outside
+ * `.report`, which is what lets the print rules at the end keep the document and drop the app
+ * around it without a second layout.
+ */
+
+.report-open {
+  margin-top: 4px;
+  padding: 7px 13px;
+  border: 1px solid #e2e2e2;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #444444;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  transition:
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.report-open:hover {
+  border-color: #b8b8b8;
+  color: #111111;
+}
+
+.report-open:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.report-sheet {
+  position: fixed;
+  z-index: 60;
+  overflow-y: auto;
+  background: #f4f3f1;
+  inset: 0;
+  animation: report-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  overscroll-behavior: contain;
+}
+
+@keyframes report-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.report-actions {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  padding: 14px 18px;
+  gap: 8px;
+  justify-content: flex-end;
+  border-bottom: 1px solid #e6e4e1;
+  background: #f4f3f1e6;
+  backdrop-filter: blur(8px);
+}
+
+.report-action,
+.report-close {
+  display: flex;
+  padding: 7px 13px;
+  align-items: center;
+  border: 1px solid #dcdad6;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #444444;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition:
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.report-close {
+  padding: 7px;
+}
+
+.report-close svg {
+  width: 14px;
+  height: 14px;
+}
+
+.report-action:hover,
+.report-close:hover {
+  border-color: #a9a6a1;
+  color: #111111;
+}
+
+.report-action:focus-visible,
+.report-close:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.report {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 44px 24px 96px;
+  color: #1a1a1a;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.report-header {
+  padding-bottom: 26px;
+  border-bottom: 1px solid #dedbd7;
+  margin-bottom: 34px;
+}
+
+.report-eyebrow {
+  margin: 0 0 10px;
+  color: #8d8a85;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.report-title {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+
+.report-dateline {
+  margin: 9px 0 0;
+  color: #8d8a85;
+  font-size: 13px;
+}
+
+.report-section {
+  margin-bottom: 38px;
+}
+
+.report-section--image {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.report-heading {
+  display: flex;
+  margin: 0 0 15px;
+  gap: 9px;
+  align-items: baseline;
+  color: #8d8a85;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+/* The claim the pins section is making, said once, in the place it applies. */
+.report-heading-note {
+  color: #b3afa9;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.report-image {
+  width: 100%;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 6%),
+    0 12px 34px rgb(17 17 17 / 10%);
+}
+
+/*
+ * Verbatim, and set as the document's own words rather than as a caption: this is the string
+ * that produced the image above it, and the report exists partly to make that checkable.
+ */
+.report-prompt {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 450;
+  letter-spacing: -0.01em;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.report-meta {
+  margin: 0;
+  color: #8d8a85;
+  font-size: 12px;
+}
+
+.report-attributes {
+  display: grid;
+  margin: 0;
+  gap: 0;
+  grid-template-columns: 1fr;
+}
+
+.report-attribute {
+  display: grid;
+  padding: 9px 0;
+  gap: 16px;
+  grid-template-columns: 8.5rem 1fr;
+  border-bottom: 1px solid #e6e4e1;
+}
+
+.report-attribute dt {
+  color: #8d8a85;
+  font-size: 13px;
+}
+
+.report-attribute dd {
+  margin: 0;
+  font-size: 15px;
+}
+
+.report-prose > :first-child {
+  margin-top: 0;
+}
+
+.report-prose p,
+.report-prose li {
+  margin: 0 0 12px;
+  color: #333333;
+}
+
+.report-prose h1,
+.report-prose h2,
+.report-prose h3 {
+  margin: 22px 0 9px;
+  font-size: 16px;
+  font-weight: 550;
+}
+
+.report-prose ul,
+.report-prose ol {
+  margin: 0 0 12px;
+  padding-left: 1.25rem;
+  list-style: revert;
+}
+
+.report-prose a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.report-citations {
+  display: flex;
+  margin: 0;
+  padding-left: 1.3rem;
+  gap: 13px;
+  flex-direction: column;
+  list-style: decimal;
+}
+
+.report-citations li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.report-citations a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.report-publisher {
+  color: #8d8a85;
+  font-size: 12px;
+}
+
+/*
+ * Hidden on screen, where the title is already a link, and revealed by the print rules — a
+ * printed citation whose URL you cannot read is not a citation.
+ */
+.report-url {
+  display: none;
+  color: #8d8a85;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.report-pins {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  list-style: none;
+}
+
+.report-pin {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  break-inside: avoid;
+}
+
+.report-pin-image,
+.report-pin-placeholder {
+  display: flex;
+  width: 100%;
+  height: 7.5rem;
+  padding: 10px;
+  align-items: center;
+  border-radius: 7px;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 6%);
+  object-fit: cover;
+}
+
+.report-pin-placeholder {
+  color: #6f6f6f;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+  justify-content: center;
+}
+
+.report-pin-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: #4a4a4a;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.report-pin-caption a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Said plainly rather than styled as a warning: it is a fact about the pin, not a failure. */
+.report-pin-dropped {
+  color: #a4a09a;
+  font-size: 11px;
+}
+
+/*
+ * Last, and folded. Spoken thinking is the raw material rather than the result, and a report
+ * that opens on a rambling transcript reads as a recording instead of a deliverable. It is one
+ * click away and never dropped, because the whole document is a claim about where the image
+ * came from and this is the origin of it.
+ */
+.report-transcript {
+  padding: 15px 17px;
+  border: 1px solid #e6e4e1;
+  border-radius: 9px;
+  background: #fbfaf9;
+}
+
+.report-transcript summary {
+  color: #8d8a85;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.report-transcript p {
+  margin: 14px 0 0;
+  color: #444444;
+  font-size: 14px;
+  line-height: 1.7;
+  text-wrap: pretty;
+  white-space: pre-wrap;
+}
+
+.report-footer {
+  padding-top: 22px;
+  border-top: 1px solid #dedbd7;
+  color: #a4a09a;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+@media (max-width: 640px) {
+  .report {
+    padding: 30px 18px 72px;
+  }
+
+  .report-title {
+    font-size: 24px;
+  }
+
+  .report-attribute {
+    gap: 4px;
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .report-sheet {
+    animation-duration: 1ms;
+  }
+
+  .report-open,
+  .report-action,
+  .report-close {
+    transition-duration: 1ms;
+  }
+}
+
+/*
+ * Print. The overlay is portalled to `body`, so the app and the report are siblings: hiding one
+ * and unwrapping the other is the entire stylesheet. No second layout, no export pipeline —
+ * the browser's own print-to-PDF is the export, and it keeps the links live.
+ */
+@media print {
+  body > *:not(.report-sheet) {
+    display: none;
+  }
+
+  .report-sheet {
+    position: static;
+    overflow: visible;
+    background: #ffffff;
+    animation: none;
+  }
+
+  .report-actions {
+    display: none;
+  }
+
+  .report {
+    max-width: none;
+    padding: 0;
+    font-size: 11pt;
+  }
+
+  .report-section {
+    break-inside: avoid;
+  }
+
+  .report-image {
+    max-height: 12cm;
+    box-shadow: none;
+    object-fit: contain;
+  }
+
+  /* `<details>` is forced open from `beforeprint`; this keeps its content laid out as prose. */
+  .report-transcript summary {
+    list-style: none;
+  }
+
+  .report-url {
+    display: block;
+  }
+
+  .report-pin-image,
+  .report-pin-placeholder {
+    box-shadow: 0 0 0 1px #dddddd;
+  }
+}

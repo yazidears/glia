@@ -1,4 +1,9 @@
-import type { GenerateRequest, GenerateResponse, PinnedRefPayload } from '@glia/api-client'
+import type {
+  Candidate,
+  GenerateRequest,
+  GenerateResponse,
+  PinnedRefPayload,
+} from '@glia/api-client'
 import { useCallback } from 'react'
 import { voiceCommandFor } from '@/lib/voice-commands'
 import {
@@ -16,6 +21,39 @@ const REQUEST_TIMEOUT_MS = 75_000
 function apiUrl(path: string): string {
   const base = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') ?? ''
   return `${base}${path}`
+}
+
+// Mirrors `GroundingNote` and `MAX_GROUNDING_NOTES` on the server. The server bounds these
+// itself — it has to, the browser is not a thing to trust with a payload size — so these two
+// exist to keep a well-behaved client from ever producing the 422 rather than to enforce
+// anything. A passage over the cap is clipped here and again, harder, in `compose_brief`.
+const GROUNDING_CHARACTERS = 800
+const MAX_GROUNDING_NOTES = 3
+
+/**
+ * What Cala already answered about this subject, on its way back down to the prompt.
+ *
+ * Cala's own `explainability` says which context items carried the answer; those are the ones
+ * worth spending the prompt's attention on, and they go behind the answer itself. Everything
+ * about this is best-effort: a discovery that failed, was debounced, never ran, or came back
+ * without credits yields an empty list, and an empty list is a generation identical to the one
+ * this app made before grounding existed. That is the point — the research lane must not be
+ * able to take the image down with it.
+ */
+function groundingFrom(candidates: readonly Candidate[]): string[] {
+  const seen = new Set<string>()
+  return candidates
+    .filter((candidate) => candidate.lane === 'cited' && candidate.evidence)
+    .map((candidate) => candidate.evidence?.replace(/\s+/g, ' ').trim() ?? '')
+    .filter((note) => {
+      if (!note || seen.has(note)) {
+        return false
+      }
+      seen.add(note)
+      return true
+    })
+    .map((note) => note.slice(0, GROUNDING_CHARACTERS))
+    .slice(0, MAX_GROUNDING_NOTES)
 }
 
 /**
@@ -133,6 +171,10 @@ export function transcriptForGeneration(
  * the ones carrying an origin image, and reports `reference_count` and `unavailable_references`
  * so nothing here has to guess which happened.
  *
+ * The grounding rides along for the same reason the pins do: it is a real input to the prompt,
+ * not decoration. It comes from Cala-cited candidates already streamed by the WebSocket, so
+ * generating never starts a second discovery request or spends another Cala credit.
+ *
  * The in-flight guard is doubled deliberately. This one keeps the button honest; the server's
  * is the one that actually protects the account, because fal allows two concurrent requests and
  * a browser is not a thing to trust with that.
@@ -142,6 +184,7 @@ export function useGenerate(): GenerateHandle {
   const transcript = useSessionStore((state) => state.transcript)
   const transcriptSegments = useSessionStore((state) => state.transcriptSegments)
   const pinned = useSessionStore((state) => state.pinned)
+  const candidates = useSessionStore((state) => state.candidates)
   const status = useSessionStore((state) => state.generationStatus)
   const startGenerating = useSessionStore((state) => state.startGenerating)
   const settleGeneration = useSessionStore((state) => state.settleGeneration)
@@ -160,6 +203,7 @@ export function useGenerate(): GenerateHandle {
       session_id: sessionId,
       transcript: promptTranscript,
       pins: pinned.map(toPayload),
+      grounding: groundingFrom(candidates),
     })
       .then((result) => {
         if (result.status !== 'ok') {
@@ -193,6 +237,7 @@ export function useGenerate(): GenerateHandle {
         })
       })
   }, [
+    candidates,
     failGeneration,
     pinned,
     promptTranscript,

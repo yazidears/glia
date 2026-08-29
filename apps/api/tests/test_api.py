@@ -205,29 +205,41 @@ def test_websocket_streams_candidates_after_a_stable_intent() -> None:
         assert candidate["image_url"].startswith("http://localhost:8000/api/image?url=")
 
 
-def test_websocket_does_not_rediscover_an_unchanged_intent() -> None:
-    with TestClient(app) as client, client.websocket_connect("/ws") as socket:
-        socket.receive_json()
-        for index, transcript in enumerate(["A cobalt observatory", "A cobalt observatory"]):
-            socket.send_json(
-                {
-                    "type": "transcript.completed",
-                    "event_id": f"event-{index}",
-                    "item_id": "item-1",
-                    "transcript": transcript,
-                }
-            )
-        # Long enough for every wave from the first discovery to land. A live service can emit
-        # one wave per lane, while the fixture emits one, so collect through a pong rather than
-        # baking the active provider count into this socket-contract test.
-        time.sleep(1.5)
-        socket.send_json({"type": "ping", "event_id": "ping-1"})
-        messages: list[dict[str, object]] = []
-        while (message := socket.receive_json())["type"] != "pong":
-            messages.append(message)
+def test_websocket_does_not_rediscover_an_unchanged_intent(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEMO_MODE", "fixture")
+    get_settings.cache_clear()
+    glia_api.get_cala_client.cache_clear()
+    glia_api.get_discovery_service.cache_clear()
+    try:
+        with TestClient(app) as client, client.websocket_connect("/ws") as socket:
+            socket.receive_json()
+            for index, transcript in enumerate(["A cobalt observatory", "A cobalt observatory"]):
+                socket.send_json(
+                    {
+                        "type": "transcript.completed",
+                        "event_id": f"event-{index}",
+                        "item_id": "item-1",
+                        "transcript": transcript,
+                    }
+                )
+            # Long enough for every wave from the first discovery to land. A live service can emit
+            # one wave per lane, while the fixture emits one, so collect through a pong rather than
+            # baking the active provider count into this socket-contract test.
+            time.sleep(1.5)
+            socket.send_json({"type": "ping", "event_id": "ping-1"})
+            messages: list[dict[str, object]] = []
+            while (message := socket.receive_json())["type"] != "pong":
+                messages.append(message)
+    finally:
+        get_settings.cache_clear()
+        glia_api.get_cala_client.cache_clear()
+        glia_api.get_discovery_service.cache_clear()
 
     intents = [message for message in messages if message["type"] == "intent.updated"]
     batches = [message for message in messages if message["type"] == "candidates.batch"]
+    assert message == {"type": "pong", "event_id": "ping-1"}
     assert len([message for message in messages if message["type"] == "transcript.accepted"]) == 2
     assert len(intents) == 2
     assert len([message for message in messages if message["type"] == "ideas.updated"]) == 1

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { SessionReport } from '@/components/session-report'
 import type { GeneratedImage as GeneratedImageValue } from '@/stores/session'
 import { useSessionStore } from '@/stores/session'
 
@@ -16,6 +17,10 @@ import { useSessionStore } from '@/stores/session'
  * A pin the server could not fetch or re-host is dropped rather than fatal, so the image above
  * is real and simply had less to go on. Saying so is the whole point: the user is the only one
  * who can act on it, and they cannot act on a number that quietly came back one short.
+ *
+ * The report opens from here rather than from the rail because this is the moment it means
+ * something: an image exists, so there is a session to write up. Before that there is no report,
+ * and an affordance for a document that cannot exist yet is noise.
  */
 
 interface GeneratedImageProps {
@@ -76,6 +81,7 @@ export function GeneratedImage({ value }: GeneratedImageProps) {
             could not be fetched and did not condition this image.
           </p>
         )}
+        <SessionReport generated={value} />
       </figcaption>
     </figure>
   )
