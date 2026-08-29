@@ -1,13 +1,15 @@
 import {
   type ClientMessage,
+  type ExpectedLanguage,
   parseRealtimeTokenResponse,
   parseServerMessage,
   type RealtimeTokenRequest,
   type RealtimeTokenResponse,
 } from '@glia/api-client'
 import { useEffect } from 'react'
-import { type AudioLevelHandle, primeAudioContext } from '@/hooks/use-audio-level'
+import type { AudioLevelHandle } from '@/hooks/use-audio-level'
 import { useSessionStore } from '@/stores/session'
+import { useSettings } from '@/stores/settings'
 
 const REQUEST_TIMEOUT_MS = 8_000
 const CLIENT_ID_KEY = 'glia:client-id:v1'
@@ -73,10 +75,10 @@ function requestSignal(parent: AbortSignal): AbortSignal {
   return AbortSignal.any([parent, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
 }
 
-async function fetchToken(signal: AbortSignal) {
+async function fetchToken(signal: AbortSignal, language: ExpectedLanguage) {
   const payload: RealtimeTokenRequest = {
     client_id: clientId(),
-    languages: ['en', 'es', 'ca'],
+    languages: [language],
   }
   const response = await fetch(apiUrl('/api/realtime-token'), {
     method: 'POST',
@@ -114,14 +116,22 @@ function delay(milliseconds: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-async function playFixture(socket: WebSocket, signal: AbortSignal): Promise<void> {
+/**
+ * The offline demo. It emits the same client messages a real provider would, so whoever consumes
+ * them decides where they go — the backend when live discovery is on, the local transcript when
+ * it is off and no message may leave the browser.
+ */
+async function playFixture(
+  signal: AbortSignal,
+  emit: (message: ClientMessage) => void,
+): Promise<void> {
   const itemId = `fixture-${crypto.randomUUID()}`
   const chunks = FIXTURE_TRANSCRIPT.match(/\S+\s*/g) ?? [FIXTURE_TRANSCRIPT]
   for (const chunk of chunks) {
     if (signal.aborted) {
       return
     }
-    send(socket, {
+    emit({
       type: 'transcript.delta',
       event_id: crypto.randomUUID(),
       item_id: itemId,
@@ -130,7 +140,7 @@ async function playFixture(socket: WebSocket, signal: AbortSignal): Promise<void
     await delay(110, signal)
   }
   if (!signal.aborted) {
-    send(socket, {
+    emit({
       type: 'transcript.completed',
       event_id: crypto.randomUUID(),
       item_id: itemId,
@@ -200,48 +210,60 @@ function encodePcm24k(input: Float32Array, inputSampleRate: number): string {
 }
 
 function startPcmStream(
-  stream: MediaStream,
+  audio: AudioLevelHandle,
   channel: RTCDataChannel,
   signal: AbortSignal,
 ): () => void {
-  const context = primeAudioContext()
-  if (!context) {
-    return () => undefined
-  }
+  let detachGraph: (() => void) | null = null
 
-  const source = context.createMediaStreamSource(stream)
-  // ScriptProcessor is deliberately used for this one-day Safari demo fallback: it is available
-  // synchronously in the existing audio context, while AudioWorklet would require another public
-  // module and an asynchronous load after the microphone gesture.
-  const processor = context.createScriptProcessor(4096, 1, 1)
-  const silentSink = context.createGain()
-  silentSink.gain.value = 0
+  const unsubscribe = audio.subscribe((analyser) => {
+    detachGraph?.()
+    detachGraph = null
 
-  processor.addEventListener('audioprocess', (event) => {
-    event.outputBuffer.getChannelData(0).fill(0)
-    if (
-      signal.aborted ||
-      channel.readyState !== 'open' ||
-      channel.bufferedAmount >= MAX_DATA_CHANNEL_BUFFER_BYTES
-    ) {
+    if (!analyser) {
       return
     }
-    channel.send(
-      JSON.stringify({
-        type: 'input_audio_buffer.append',
-        audio: encodePcm24k(event.inputBuffer.getChannelData(0), context.sampleRate),
-      }),
-    )
+
+    const context = analyser.context
+    // ScriptProcessor is deliberately used for this one-day Safari demo fallback: it is
+    // synchronous, while AudioWorklet needs another public module and an asynchronous load after
+    // the microphone gesture. Crucially, it branches from the existing analyser instead of
+    // creating a second MediaStreamAudioSourceNode for the same Safari microphone track.
+    const processor = context.createScriptProcessor(4096, 1, 1)
+    const silentSink = context.createGain()
+    silentSink.gain.value = 0
+
+    processor.addEventListener('audioprocess', (event) => {
+      event.outputBuffer.getChannelData(0).fill(0)
+      if (
+        signal.aborted ||
+        channel.readyState !== 'open' ||
+        channel.bufferedAmount >= MAX_DATA_CHANNEL_BUFFER_BYTES
+      ) {
+        return
+      }
+      channel.send(
+        JSON.stringify({
+          type: 'input_audio_buffer.append',
+          audio: encodePcm24k(event.inputBuffer.getChannelData(0), context.sampleRate),
+        }),
+      )
+    })
+
+    analyser.connect(processor)
+    processor.connect(silentSink)
+    silentSink.connect(context.destination)
+
+    detachGraph = () => {
+      analyser.disconnect(processor)
+      processor.disconnect()
+      silentSink.disconnect()
+    }
   })
 
-  source.connect(processor)
-  processor.connect(silentSink)
-  silentSink.connect(context.destination)
-
   return () => {
-    processor.disconnect()
-    source.disconnect()
-    silentSink.disconnect()
+    unsubscribe()
+    detachGraph?.()
   }
 }
 
@@ -305,6 +327,7 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
   const setConnection = useSessionStore((state) => state.setConnection)
   const setTranscriptState = useSessionStore((state) => state.setTranscriptState)
   const setIntent = useSessionStore((state) => state.setIntent)
+  const setSessionId = useSessionStore((state) => state.setSessionId)
 
   useEffect(() => {
     if (!stream) {
@@ -363,6 +386,40 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
       )
     }
 
+    /**
+     * Every client-to-server message the live path can produce goes through here.
+     *
+     * Live discovery is a credit control, so it gates at the call site rather than in a render:
+     * settled speech that never reaches the backend never reaches the distiller gate, and a query
+     * that is never made cannot spend a Cala credit. The setting is read at send time so flipping
+     * it takes effect on the next word instead of on the next reconnect.
+     */
+    const relay = (message: ClientMessage): void => {
+      if (!backend || !useSettings.getState().liveDiscovery) {
+        return
+      }
+      send(backend, message)
+    }
+
+    /** Paint a message the browser has decided not to send. */
+    const paintLocally = (message: ClientMessage): void => {
+      if (message.type === 'transcript.delta') {
+        updateTranscriptItem(
+          message.item_id,
+          message.delta,
+          false,
+          (current, delta) => current + delta,
+        )
+      } else if (message.type === 'transcript.completed') {
+        updateTranscriptItem(
+          message.item_id,
+          message.transcript,
+          true,
+          (_current, transcript) => transcript,
+        )
+      }
+    }
+
     setConnection('connecting')
 
     const onBackendMessage = (event: MessageEvent<string>): void => {
@@ -373,7 +430,11 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
       if (!message) {
         return
       }
-      if (message.type === 'transcript.accepted') {
+      if (message.type === 'session.ready') {
+        // Discovery is debounced per session on the server, so the client has to say which
+        // session it is speaking for.
+        setSessionId(message.session_id)
+      } else if (message.type === 'transcript.accepted') {
         // Provider events paint locally with zero round-trip latency. Backend echoes can arrive
         // one delta behind, so they are only the source of truth for the deterministic fixture.
         if (providerTranscriptionSeen) {
@@ -386,7 +447,10 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
           (_current, transcript) => transcript,
         )
       } else if (message.type === 'intent.updated') {
-        setIntent(message.intent)
+        // `should_discover` is the distiller's gate, evaluated server-side and only on a settled
+        // turn. Passing it through is what stops an interim delta — or a turn that did not move
+        // the idea — from ever reaching Cala.
+        setIntent(message.intent, message.transcript, message.should_discover)
       } else if (message.type === 'error' && !message.recoverable) {
         setConnection('error', message.detail)
       }
@@ -429,14 +493,12 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
           false,
           (current, delta) => current + delta,
         )
-        if (backend) {
-          send(backend, {
-            type: 'transcript.delta',
-            event_id: providerEventId,
-            item_id: message.item_id,
-            delta: message.delta,
-          })
-        }
+        relay({
+          type: 'transcript.delta',
+          event_id: providerEventId,
+          item_id: message.item_id,
+          delta: message.delta,
+        })
       } else if (
         message.type === 'conversation.item.input_audio_transcription.completed' &&
         typeof message.transcript === 'string'
@@ -448,21 +510,19 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
           true,
           (_current, transcript) => transcript,
         )
-        if (backend) {
-          send(backend, {
-            type: 'transcript.completed',
-            event_id: providerEventId,
-            item_id: message.item_id,
-            transcript: message.transcript,
-          })
-        }
+        relay({
+          type: 'transcript.completed',
+          event_id: providerEventId,
+          item_id: message.item_id,
+          transcript: message.transcript,
+        })
       }
     })
     events.addEventListener('open', () => {
       // gpt-live-transcribe rejects server and semantic VAD, and its transcription buffer is not
       // populated by Safari's RTP track. Append explicit 24 kHz PCM over the same data channel,
       // then commit only after the local analyser has observed a real phrase and pause.
-      stopPcmStream = startPcmStream(stream, events, controller.signal)
+      stopPcmStream = startPcmStream(audio, events, controller.signal)
       stopManualCommit = startManualCommitLoop(
         audio,
         () => events.send(JSON.stringify({ type: 'input_audio_buffer.commit' })),
@@ -490,11 +550,19 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
         backend = await openBackendSocket(controller.signal, onBackendMessage)
         let token: RealtimeTokenResponse
         try {
-          token = await fetchToken(controller.signal)
+          token = await fetchToken(controller.signal, useSettings.getState().language)
         } catch (error) {
           if (error instanceof RealtimeProviderError && error.code === 'realtime_not_configured') {
             setConnection('connected')
-            await playFixture(backend, controller.signal)
+            await playFixture(controller.signal, (message) => {
+              if (useSettings.getState().liveDiscovery) {
+                relay(message)
+                return
+              }
+              // In fixture mode the backend echo is the only thing that paints. With discovery
+              // off nothing may leave the browser, so the words land here instead of nowhere.
+              paintLocally(message)
+            })
             return
           }
           throw error
@@ -537,5 +605,5 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
       peer.close()
       backend?.close()
     }
-  }, [audio, setConnection, setIntent, setTranscriptState, stream])
+  }, [audio, setConnection, setIntent, setSessionId, setTranscriptState, stream])
 }

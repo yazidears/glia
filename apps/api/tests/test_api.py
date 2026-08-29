@@ -2,8 +2,10 @@ import time
 from collections.abc import Sequence
 
 from fastapi.testclient import TestClient
+from pytest import MonkeyPatch
 
 from glia.api import get_token_broker
+from glia.config import get_settings
 from glia.contracts import RealtimeTokenResponse
 from glia.main import app
 
@@ -46,37 +48,44 @@ def test_realtime_token_uses_short_lived_broker_contract() -> None:
     }
 
 
-def test_websocket_reconciles_deltas_and_returns_stable_intent() -> None:
-    with TestClient(app) as client, client.websocket_connect("/ws") as socket:
-        ready = socket.receive_json()
-        assert ready["type"] == "session.ready"
+def test_websocket_reconciles_deltas_and_returns_stable_intent(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEMO_MODE", "fixture")
+    get_settings.cache_clear()
+    try:
+        with TestClient(app) as client, client.websocket_connect("/ws") as socket:
+            ready = socket.receive_json()
+            assert ready["type"] == "session.ready"
 
-        socket.send_json(
-            {
-                "type": "transcript.delta",
-                "event_id": "event-1",
+            socket.send_json(
+                {
+                    "type": "transcript.delta",
+                    "event_id": "event-1",
+                    "item_id": "item-1",
+                    "delta": "A lonely cobalt ",
+                }
+            )
+            accepted = socket.receive_json()
+            assert accepted == {
+                "type": "transcript.accepted",
                 "item_id": "item-1",
-                "delta": "A lonely cobalt ",
+                "transcript": "A lonely cobalt ",
+                "complete": False,
             }
-        )
-        accepted = socket.receive_json()
-        assert accepted == {
-            "type": "transcript.accepted",
-            "item_id": "item-1",
-            "transcript": "A lonely cobalt ",
-            "complete": False,
-        }
 
-        socket.send_json(
-            {
-                "type": "transcript.completed",
-                "event_id": "event-2",
-                "item_id": "item-1",
-                "transcript": "A lonely cobalt observatory, cinematic and cold",
-            }
-        )
-        completed = socket.receive_json()
-        intent = socket.receive_json()
+            socket.send_json(
+                {
+                    "type": "transcript.completed",
+                    "event_id": "event-2",
+                    "item_id": "item-1",
+                    "transcript": "A lonely cobalt observatory, cinematic and cold",
+                }
+            )
+            completed = socket.receive_json()
+            intent = socket.receive_json()
+    finally:
+        get_settings.cache_clear()
 
     assert completed["type"] == "transcript.accepted"
     assert completed["complete"] is True

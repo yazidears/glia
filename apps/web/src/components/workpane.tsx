@@ -1,166 +1,217 @@
-import { Pin } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import type { DiscoverResponse, ResolvedEntity } from '@glia/api-client'
+import type { CSSProperties } from 'react'
+import Markdown, { type Components } from 'react-markdown'
+import { EvidenceCard } from '@/components/evidence-card'
+import { IdeaBoard } from '@/components/idea-board'
+import { DiscoveryError, useDiscovery } from '@/hooks/use-discovery'
 import { cn } from '@/lib/utils'
-import { useSessionStore } from '@/stores/session'
 
 interface WorkpaneProps {
   className?: string
 }
 
-interface StickerSpec {
-  id: string
-  title: string
-  lane: 'cited page' | 'open'
-  variant: number
+/**
+ * Markdown from Cala, rendered with react-markdown's default element set.
+ *
+ * Raw HTML is off — no `rehype-raw`, no `dangerouslySetInnerHTML`. That default *is* the
+ * sanitisation: the answer is text from a source we do not control, and the only safe way to
+ * show it is to let the parser decide what an element is.
+ */
+const MARKDOWN_COMPONENTS: Components = {
+  p: ({ children }) => (
+    <p className="text-[15px] text-neutral-700 leading-[1.75] dark:text-neutral-300">{children}</p>
+  ),
+  strong: ({ children }) => (
+    <strong className="font-medium text-neutral-900 dark:text-neutral-100">{children}</strong>
+  ),
+  h1: ({ children }) => (
+    <h3 className="pt-2 font-medium text-base text-neutral-900 dark:text-neutral-100">
+      {children}
+    </h3>
+  ),
+  h2: ({ children }) => (
+    <h3 className="pt-2 font-medium text-base text-neutral-900 dark:text-neutral-100">
+      {children}
+    </h3>
+  ),
+  h3: ({ children }) => (
+    <h4 className="pt-1 font-medium text-[15px] text-neutral-900 dark:text-neutral-100">
+      {children}
+    </h4>
+  ),
+  ul: ({ children }) => (
+    <ul className="flex list-disc flex-col gap-1.5 pl-5 marker:text-neutral-300 dark:marker:text-neutral-600">
+      {children}
+    </ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="flex list-decimal flex-col gap-1.5 pl-5 marker:text-neutral-400 dark:marker:text-neutral-500">
+      {children}
+    </ol>
+  ),
+  li: ({ children }) => (
+    <li className="text-[15px] text-neutral-700 leading-[1.7] dark:text-neutral-300">{children}</li>
+  ),
+  a: ({ children, href }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+      className="underline decoration-neutral-300 underline-offset-2 dark:decoration-neutral-600"
+    >
+      {children}
+    </a>
+  ),
+  code: ({ children }) => (
+    <code className="rounded bg-neutral-100 px-1 py-0.5 text-[13px] dark:bg-neutral-800">
+      {children}
+    </code>
+  ),
 }
 
-const STICKERS: StickerSpec[] = [
-  { id: 'observatory', title: 'Cobalt observatory', lane: 'cited page', variant: 0 },
-  { id: 'brutalist-sun', title: 'Brutalist sun study', lane: 'open', variant: 1 },
-  { id: 'quiet-coast', title: 'Quiet Mediterranean', lane: 'open', variant: 2 },
-  { id: 'red-editorial', title: 'Red editorial forms', lane: 'cited page', variant: 3 },
-  { id: 'night-arch', title: 'Night architecture', lane: 'open', variant: 4 },
-  { id: 'blue-type', title: 'Blue type fragment', lane: 'cited page', variant: 5 },
-]
+function Note({ children }: { children: React.ReactNode }) {
+  return <p className="max-w-[52ch] text-neutral-500 text-sm dark:text-neutral-400">{children}</p>
+}
 
-function StickerArt({ variant }: { variant: number }) {
-  if (variant === 0) {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 320 240">
-        <rect width="320" height="240" fill="#3159d7" />
-        <circle cx="250" cy="48" r="25" fill="#f5f0d6" />
-        <path d="M0 164C68 146 120 171 176 155s91-4 144-22v107H0Z" fill="#779be7" />
-        <path d="M0 191c74-20 142 12 202-8 43-14 76-11 118-24v81H0Z" fill="#c2d0f2" />
-        <path d="M90 80h104v89H90z" fill="#17255f" />
-        <path d="m78 80 64-44 64 44Z" fill="#d2d9ec" />
-        <circle cx="142" cy="38" r="18" fill="#17255f" />
-        <rect x="136" y="20" width="12" height="31" fill="#d2d9ec" />
-        <rect x="106" y="105" width="24" height="64" fill="#f2c35e" />
-      </svg>
-    )
-  }
-  if (variant === 1) {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 320 240">
-        <rect width="320" height="240" fill="#e9e2d4" />
-        <circle cx="239" cy="63" r="46" fill="#f25d35" />
-        <rect x="35" y="36" width="92" height="166" fill="#171717" />
-        <rect x="61" y="64" width="40" height="70" fill="#e9e2d4" />
-        <path d="M126 107h94v95h-94z" fill="#b4aa97" />
-        <path d="m220 107 61 95h-61Z" fill="#314fd1" />
-        <path d="M126 107h94l-47-48Z" fill="#f6c85e" />
-      </svg>
-    )
-  }
-  if (variant === 2) {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 320 240">
-        <rect width="320" height="240" fill="#c9e9ef" />
-        <rect y="126" width="320" height="114" fill="#4f8c9a" />
-        <path d="M0 148c57-26 91 18 146-2s108 20 174-4v98H0Z" fill="#8cc8cc" />
-        <circle cx="72" cy="58" r="30" fill="#fff8de" />
-        <path d="M224 97h41l17 73h-74Z" fill="#df4b3f" />
-        <rect x="232" y="84" width="24" height="89" fill="#302d2b" />
-        <path d="M210 174h74v13h-74z" fill="#302d2b" />
-        <path d="M38 123c26-33 58-38 92 0Z" fill="#315d53" />
-      </svg>
-    )
-  }
-  if (variant === 3) {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 320 240">
-        <rect width="320" height="240" fill="#f0eee6" />
-        <path d="M-19 17h153v67H-19z" fill="#d83b31" transform="rotate(-8 57 50)" />
-        <circle cx="231" cy="80" r="57" fill="#161616" />
-        <path d="m134 104 86-31v144h-86Z" fill="#f6c651" />
-        <path d="M17 126h96v87H17z" fill="#3157cf" />
-        <path d="m205 168 92-50v99h-92Z" fill="#d83b31" />
-        <circle cx="66" cy="170" r="20" fill="#f0eee6" />
-      </svg>
-    )
-  }
-  if (variant === 4) {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 320 240">
-        <rect width="320" height="240" fill="#10131b" />
-        <circle cx="70" cy="56" r="25" fill="#f1c65b" />
-        <path d="M73 240V99c0-43 34-76 77-76s77 33 77 76v141Z" fill="#314b73" />
-        <path d="M105 240V105c0-25 20-46 45-46s45 21 45 46v135Z" fill="#8aa3bd" />
-        <rect x="133" y="119" width="34" height="121" fill="#10131b" />
-        <path d="M0 207h320v33H0z" fill="#262b37" />
-      </svg>
-    )
-  }
+/** A quiet skeleton. No spinner — a spinner asks to be watched, and this takes a moment. */
+function Skeleton() {
   return (
-    <svg aria-hidden="true" viewBox="0 0 320 240">
-      <rect width="320" height="240" fill="#3559d6" />
-      <path d="M32 28h256v184H32z" fill="#e8e5dc" />
-      <path d="M65 64h190v20H65zm0 36h137v20H65zm0 36h165v20H65z" fill="#171717" />
-      <path d="M216 98h39v86h-39z" fill="#f06445" />
-      <circle cx="86" cy="185" r="26" fill="#f3c65b" />
-      <path d="m121 169 67 43h-67Z" fill="#3559d6" />
-    </svg>
+    <div aria-hidden className="flex animate-pulse flex-col gap-6">
+      <div className="flex flex-col gap-2">
+        <div className="h-4 w-40 rounded bg-neutral-200 dark:bg-neutral-800" />
+        <div className="h-3 w-64 rounded bg-neutral-100 dark:bg-neutral-900" />
+      </div>
+      <div className="flex flex-col gap-2">
+        <div className="h-3 w-full max-w-[38rem] rounded bg-neutral-100 dark:bg-neutral-900" />
+        <div className="h-3 w-full max-w-[34rem] rounded bg-neutral-100 dark:bg-neutral-900" />
+        <div className="h-3 w-full max-w-[22rem] rounded bg-neutral-100 dark:bg-neutral-900" />
+      </div>
+    </div>
   )
 }
 
+function ResolvedEntityHeader({ entity }: { entity: ResolvedEntity }) {
+  return (
+    <header
+      style={{ '--discovery-index': 0 } as CSSProperties}
+      className="discovery-item flex max-w-[65ch] flex-col gap-2"
+    >
+      <div className="flex flex-wrap items-center gap-2.5">
+        <h2 className="font-medium text-lg text-neutral-900 tracking-tight dark:text-neutral-50">
+          {entity.name}
+        </h2>
+        {entity.entity_type ? (
+          <span className="rounded-full border border-neutral-200 px-2 py-0.5 text-[11px] text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
+            {entity.entity_type}
+          </span>
+        ) : null}
+      </div>
+      {entity.description ? (
+        <p className="text-[15px] text-neutral-600 leading-relaxed dark:text-neutral-400">
+          {entity.description}
+        </p>
+      ) : null}
+    </header>
+  )
+}
+
+function Result({ data }: { data: DiscoverResponse }) {
+  if (data.status === 'rate_limited' || data.status === 'budget_exhausted') {
+    return (
+      <div className="discovery-item">
+        <Note>
+          {data.status === 'rate_limited'
+            ? 'Source lookup is rate limited right now. The transcript keeps running.'
+            : `The source-lookup budget is spent (${data.ledger.spent} of ${data.ledger.budget} credits). No further queries will be made.`}
+        </Note>
+      </div>
+    )
+  }
+
+  // Cala's coverage is finance, legal and health; most spoken subjects miss it. Saying so is
+  // the honest answer — an unsourced model answer must never be dressed up as a grounded one.
+  if (data.status === 'empty' || !data.answer) {
+    return (
+      <div className="flex flex-col gap-2">
+        {data.entity ? <ResolvedEntityHeader entity={data.entity} /> : null}
+        <Note>No cited sources for this yet.</Note>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      {data.entity ? <ResolvedEntityHeader entity={data.entity} /> : null}
+
+      <div
+        style={{ '--discovery-index': 1 } as CSSProperties}
+        className="discovery-item flex max-w-[65ch] flex-col gap-4"
+      >
+        <Markdown components={MARKDOWN_COMPONENTS}>{data.answer}</Markdown>
+      </div>
+
+      {data.context.length > 0 ? (
+        <section aria-label="Evidence" className="flex flex-col gap-6">
+          <h3 className="font-medium text-[11px] text-neutral-400 uppercase tracking-[0.1em] dark:text-neutral-500">
+            Evidence
+          </h3>
+          {data.context.map((item, index) => (
+            <EvidenceCard key={item.id} item={item} index={index} />
+          ))}
+        </section>
+      ) : null}
+    </>
+  )
+}
+
+/**
+ * The right two thirds of the working layout.
+ *
+ * Two things want this space and only one of them is real yet. Until the distiller gate opens
+ * and Cala answers, the placeholder `IdeaBoard` holds it — clearly badged `demo`, because
+ * nothing on it is sourced. The moment a lookup is in flight or has landed, the pane belongs to
+ * what Cala actually cited: sourced content outranks a placeholder, and the two must never be
+ * on screen together or the demo stickers read as evidence.
+ *
+ * Every state below is a real outcome. None is a crash, and none invents an answer Cala did
+ * not cite.
+ */
 export function Workpane({ className }: WorkpaneProps) {
-  const transcript = useSessionStore((state) => state.transcript)
-  const setProcessedWordCount = useSessionStore((state) => state.setProcessedWordCount)
-  const [revealedCount, setRevealedCount] = useState(0)
-  const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => new Set())
-  const wordCount = transcript.trim() ? transcript.trim().split(/\s+/).length : 0
-  const suggestedCount =
-    wordCount < 3 ? 0 : Math.min(STICKERS.length, Math.ceil((wordCount - 2) / 3) * 2)
+  const { data, isFetching, error } = useDiscovery()
 
-  useEffect(() => {
-    if (suggestedCount <= revealedCount) {
-      return
-    }
-    setRevealedCount(suggestedCount)
-    setProcessedWordCount(wordCount)
-  }, [revealedCount, setProcessedWordCount, suggestedCount, wordCount])
+  const loading = isFetching && !data
+  const correlationId = error instanceof DiscoveryError ? error.correlationId : null
 
-  const togglePin = (id: string): void => {
-    setPinnedIds((current) => {
-      const next = new Set(current)
-      if (next.has(id)) {
-        next.delete(id)
-      } else {
-        next.add(id)
-      }
-      return next
-    })
+  // Nothing asked, nothing answered, nothing failed: the gate has not opened yet.
+  if (!loading && !error && !data) {
+    return <IdeaBoard className={className} />
   }
 
   return (
     <section
-      aria-label="Evolving visual references"
-      className={cn('idea-board min-h-0 overflow-hidden p-3 md:p-6', className)}
+      aria-label="Workpane"
+      aria-busy={loading}
+      className={cn('min-h-0 overflow-y-auto p-5 md:p-8', className)}
     >
-      {STICKERS.slice(0, revealedCount).map((sticker, index) => {
-        const isPinned = pinnedIds.has(sticker.id)
-        return (
-          <figure
-            className={cn('idea-sticker', `idea-sticker--${index + 1}`, isPinned && 'is-pinned')}
-            key={sticker.id}
-          >
-            <div className="sticker-art">
-              <StickerArt variant={sticker.variant} />
-            </div>
-            <figcaption className="sr-only">{sticker.title}</figcaption>
-            <span className="sticker-lane">demo · {sticker.lane}</span>
-            <button
-              type="button"
-              className="pin-button"
-              aria-label={`${isPinned ? 'Unpin' : 'Pin'} ${sticker.title}`}
-              aria-pressed={isPinned}
-              onClick={() => togglePin(sticker.id)}
-            >
-              <Pin aria-hidden="true" strokeWidth={1.8} />
-            </button>
-          </figure>
-        )
-      })}
+      {/*
+        Entry only, no exit. `main` dropped the `motion` dependency when the session screen went
+        CSS-only, so these animate through `.discovery-item` in index.css on the same curve as
+        `workspace-enter` and `sticker-enter`, and honour the existing reduced-motion opt-out.
+      */}
+      {loading ? (
+        <div className="discovery-item">
+          <Skeleton />
+        </div>
+      ) : error ? (
+        <div className="discovery-item">
+          <Note>Source lookup failed. Reference {correlationId ?? 'unknown'}.</Note>
+        </div>
+      ) : data ? (
+        // Keyed on the query so a new settled turn remounts the subtree and replays the entry.
+        <div key={`${data.session_id}:${data.query}`} className="flex flex-col gap-8">
+          <Result data={data} />
+        </div>
+      ) : null}
     </section>
   )
 }
