@@ -33,7 +33,12 @@ class Settings(BaseSettings):
     cala_min_seconds_between_queries: float = Field(default=8.0, ge=0, le=600)
     cala_credit_budget: int = Field(default=1_100, ge=0)
     cala_cache_ttl_seconds: float = Field(default=3_600.0, gt=0)
-    cala_request_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    # Connect is fast and 10s is generous. Read is not: a cold `knowledge/search` was measured
+    # at 45.7s against the live API on 29 Aug 2026, and the credit is spent whether or not we
+    # wait for the answer — so a short read timeout buys nothing and throws away what we paid
+    # for. Measured, not guessed; see the spike note in cala.py.
+    cala_connect_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    cala_request_timeout_seconds: float = Field(default=90.0, gt=0, le=300)
     cala_entity_limit: int = Field(default=5, ge=1, le=100)
 
 

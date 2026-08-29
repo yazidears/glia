@@ -175,7 +175,14 @@ class CalaUpstreamError(Exception):
 
 
 class CalaRetryableError(CalaUpstreamError):
-    """5xx, timeout or transport failure — the only class tenacity retries."""
+    """A failure that provably never reached Cala, and is therefore free to repeat.
+
+    Nothing else is retryable here, because a retry on a billable endpoint is a second credit.
+    A read timeout in particular is NOT this: the query has already been accepted and is
+    running upstream, so retrying it buys the same answer twice. Measured against the live API
+    on 29 Aug 2026 — a cold `knowledge/search` took 45.7s, which a naive read-timeout retry
+    turns into three charged queries for one question.
+    """
 
 
 def extract_subject(transcript: str) -> str | None:
@@ -226,6 +233,12 @@ def _entity_rows(payload: Any) -> list[Any]:
     return []
 
 
+def _first_entity(rows: list[Any]) -> CalaEntityHit | None:
+    if not rows or not isinstance(rows[0], dict):
+        return None
+    return CalaEntityHit.model_validate(rows[0])
+
+
 def join_evidence(result: CalaSearchResult) -> list[EvidenceItem]:
     """Join ``explainability[].references`` onto ``context[].id``.
 
@@ -255,15 +268,20 @@ class CalaClient:
         self._settings = settings
         self._base_url = settings.cala_base_url.rstrip("/")
         self._timeout = httpx.Timeout(
-            connect=settings.cala_request_timeout_seconds,
+            connect=settings.cala_connect_timeout_seconds,
             read=settings.cala_request_timeout_seconds,
-            write=settings.cala_request_timeout_seconds,
-            pool=settings.cala_request_timeout_seconds,
+            write=settings.cala_connect_timeout_seconds,
+            pool=settings.cala_connect_timeout_seconds,
         )
         self.ledger = CreditLedger(budget=settings.cala_credit_budget)
         self.debounce = SessionDebounce(settings.cala_min_seconds_between_queries)
         #: Keyed on a hash of the normalised search input, holding the raw upstream JSON.
         self.cache: TtlCache[dict[str, Any]] = TtlCache(settings.cala_cache_ttl_seconds)
+        #: Entity resolution is cached on the same terms as search. It has to be: a demo script
+        #: re-run must cost zero, and an uncached entity lookup bills on every repeat even when
+        #: the search behind it is a hit. Whether it bills at all is undocumented — which is
+        #: exactly why it is not left to chance.
+        self.entity_cache: TtlCache[list[Any]] = TtlCache(settings.cala_cache_ttl_seconds)
         self._replies: dict[str, DiscoverResponse] = {}
 
     @property
@@ -285,8 +303,17 @@ class CalaClient:
     def remember_reply(self, session_id: str, response: DiscoverResponse) -> None:
         self._replies[session_id] = response
 
-    async def resolve_entity(self, subject: str) -> CalaEntityHit | None:
-        """`GET /entities?name=…&limit=…` — turn a messy spoken mention into a typed entity."""
+    async def resolve_entity(self, subject: str) -> tuple[CalaEntityHit | None, bool]:
+        """`GET /entities?name=…&limit=…` — turn a messy spoken mention into a typed entity.
+
+        Returns the first hit and whether it came from cache.
+        """
+        key = cache_key(subject)
+        cached_rows = self.entity_cache.get(key)
+        if cached_rows is not None:
+            logger.info("cala.entities.cache_hit", key=key[:12])
+            return _first_entity(cached_rows), True
+
         payload = await self._request(
             "GET",
             "/entities",
@@ -294,12 +321,8 @@ class CalaClient:
             params={"name": subject, "limit": self._settings.cala_entity_limit},
         )
         rows = _entity_rows(payload)
-        if not isinstance(rows, list) or not rows:
-            return None
-        first = rows[0]
-        if not isinstance(first, dict):
-            return None
-        return CalaEntityHit.model_validate(first)
+        self.entity_cache.set(key, rows)
+        return _first_entity(rows), False
 
     async def search(self, query: str) -> tuple[CalaSearchResult, bool]:
         """`POST /knowledge/search`. Returns the parsed result and whether it was cached.
@@ -383,8 +406,14 @@ class CalaClient:
                 response = await client.request(
                     method, path, params=params, json=json, headers=headers
                 )
-        except httpx.HTTPError as error:
+        except (httpx.ConnectError, httpx.ConnectTimeout) as error:
+            # Never left the machine: safe to try again.
             raise CalaRetryableError("Cala is unreachable.") from error
+        except httpx.HTTPError as error:
+            # Sent but not answered — a read timeout, a dropped connection mid-response. The
+            # query is running upstream and the credit is spent, so this surfaces instead of
+            # being repeated.
+            raise CalaUpstreamError("Cala did not answer in time.") from error
 
         # 429 and 422 are answers, not failures: retrying a rate limit spends the budget faster
         # and retrying a validation error just repeats it.
@@ -393,7 +422,8 @@ class CalaClient:
         if response.status_code == 422:
             raise CalaUpstreamError("Cala rejected the query as invalid.")
         if response.status_code >= 500:
-            raise CalaRetryableError(f"Cala returned {response.status_code}.")
+            # Also not retried: an upstream 500 may still have run and billed the query.
+            raise CalaUpstreamError(f"Cala returned {response.status_code}.")
         if response.status_code >= 400:
             # The upstream body is logged, never returned — it is a vendor response and may
             # carry detail we have no business putting in an HTTP reply.

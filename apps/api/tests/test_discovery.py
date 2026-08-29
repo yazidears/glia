@@ -5,6 +5,7 @@ integration, so the debounce, the cache and the ledger each get a test that fail
 is spent when it should not be.
 """
 
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -15,7 +16,13 @@ from glia.api import get_cala_client
 from glia.config import Settings
 from glia.contracts import CalaSearchResult
 from glia.discovery.budget import BudgetExhausted, CreditLedger, SessionDebounce, cache_key
-from glia.discovery.cala import CalaClient, CalaRateLimited, extract_subject, join_evidence
+from glia.discovery.cala import (
+    CalaClient,
+    CalaRateLimited,
+    CalaUpstreamError,
+    extract_subject,
+    join_evidence,
+)
 from glia.main import create_app
 
 SEARCH_BODY: dict[str, Any] = {
@@ -79,8 +86,12 @@ class _Recorder:
         return httpx.Response(200, json=SEARCH_BODY)
 
 
-def stub(client: CalaClient, recorder: _Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
-    transport = httpx.MockTransport(recorder.handler)
+def stub_transport(
+    handler: Callable[[httpx.Request], httpx.Response], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Route the client at a mock transport. `original` is captured before the patch lands,
+    otherwise the factory calls itself."""
+    transport = httpx.MockTransport(handler)
     original = httpx.AsyncClient
 
     def factory(**kwargs: Any) -> httpx.AsyncClient:
@@ -88,6 +99,10 @@ def stub(client: CalaClient, recorder: _Recorder, monkeypatch: pytest.MonkeyPatc
         return original(**kwargs)
 
     monkeypatch.setattr("glia.discovery.cala.httpx.AsyncClient", factory)
+
+
+def stub(client: CalaClient, recorder: _Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
+    stub_transport(recorder.handler, monkeypatch)
 
 
 # ─── subject heuristic ──────────────────────────────────────────────────────────
@@ -160,6 +175,21 @@ def test_cache_key_normalises_whitespace_and_case() -> None:
 
 
 @pytest.mark.asyncio
+async def test_repeated_entity_resolution_costs_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = CalaClient(settings())
+    recorder = _Recorder()
+    stub(client, recorder, monkeypatch)
+
+    first, first_cached = await client.resolve_entity("Klarna")
+    second, second_cached = await client.resolve_entity("  klarna ")
+
+    assert (first_cached, second_cached) == (False, True)
+    assert first is not None and second is not None and first.id == second.id
+    assert len(recorder.requests) == 1
+    assert client.ledger.entity_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_repeated_search_costs_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     client = CalaClient(settings())
     recorder = _Recorder()
@@ -185,6 +215,48 @@ async def test_auth_header_is_x_api_key(monkeypatch: pytest.MonkeyPatch) -> None
     request = recorder.requests[0]
     assert request.headers["X-API-KEY"] == "test-key-not-a-real-credential"
     assert "authorization" not in request.headers
+
+
+@pytest.mark.asyncio
+async def test_read_timeout_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A read timeout means the query is already running upstream and already billed.
+    Retrying it buys the same answer a second time — the exact way the budget leaks."""
+    client = CalaClient(settings())
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        raise httpx.ReadTimeout("too slow", request=request)
+
+    stub_transport(handler, monkeypatch)
+
+    with pytest.raises(CalaUpstreamError):
+        await client.search("Klarna")
+
+    assert attempts == 1
+    assert client.ledger.search_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_connect_error_is_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A connection that never opened cost nothing, so repeating it is free."""
+    client = CalaClient(settings())
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        raise httpx.ConnectError("refused", request=request)
+
+    stub_transport(handler, monkeypatch)
+
+    with pytest.raises(CalaUpstreamError):
+        await client.search("Klarna")
+
+    assert attempts == 3
+    # Three attempts, one credit: the ledger charges the question, not the network.
+    assert client.ledger.search_calls == 1
 
 
 @pytest.mark.asyncio
@@ -229,6 +301,30 @@ def test_discover_returns_entity_answer_and_cited_evidence(api: Any) -> None:
     assert body["context"][0]["carried_answer"] is True
     assert body["ledger"]["entity_calls"] == 1
     assert body["ledger"]["search_calls"] == 1
+
+
+def test_rerunning_the_same_transcript_spends_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The demo is re-run many times before it is performed once. It has to be free."""
+    get_cala_client.cache_clear()
+    client = CalaClient(settings(cala_min_seconds_between_queries=0.0))
+    recorder = _Recorder()
+    stub(client, recorder, monkeypatch)
+    app = create_app()
+    app.dependency_overrides[get_cala_client] = lambda: client
+    with TestClient(app) as http:
+        payload = {"transcript": "Tell me about Klarna.", "session_id": "s-1"}
+        http.post("/v1/discover", json=payload)
+        spent_after_first = client.ledger.spent
+        # A fresh session, so the debounce cannot be what makes this free — only the cache can.
+        second = http.post("/v1/discover", json={**payload, "session_id": "s-2"}).json()
+
+    assert spent_after_first == 2
+    assert client.ledger.spent == 2
+    assert second["cached"] is True
+    assert second["status"] == "ok"
+    assert second["entity"]["name"] == "Klarna"
+    assert len(second["context"]) == 2
+    get_cala_client.cache_clear()
 
 
 def test_second_turn_inside_the_window_spends_nothing(monkeypatch: pytest.MonkeyPatch) -> None:

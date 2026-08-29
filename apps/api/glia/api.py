@@ -138,9 +138,9 @@ async def discover(
         )
 
     try:
-        entity = await client.resolve_entity(subject)
+        entity, entity_cached = await client.resolve_entity(subject)
         query = _query_for(subject, entity)
-        result, cached = await client.search(query)
+        result, search_cached = await client.search(query)
     except BudgetExhausted:
         logger.warning("cala.discover.budget_exhausted", budget=client.ledger.budget)
         return _terminal(
@@ -170,6 +170,9 @@ async def discover(
             correlation_id=correlation_id,
         )
 
+    # Only a turn that actually bought something restarts the debounce window; a fully cached
+    # turn cost nothing and should not delay the next real question.
+    cached = entity_cached and search_cached
     if not cached:
         client.debounce.mark(payload.session_id)
 
