@@ -6,7 +6,7 @@ import {
   type RealtimeTokenResponse,
 } from '@glia/api-client'
 import { useEffect } from 'react'
-import { type AudioLevelHandle, primeAudioContext } from '@/hooks/use-audio-level'
+import type { AudioLevelHandle } from '@/hooks/use-audio-level'
 import { useSessionStore } from '@/stores/session'
 
 const REQUEST_TIMEOUT_MS = 8_000
@@ -200,48 +200,60 @@ function encodePcm24k(input: Float32Array, inputSampleRate: number): string {
 }
 
 function startPcmStream(
-  stream: MediaStream,
+  audio: AudioLevelHandle,
   channel: RTCDataChannel,
   signal: AbortSignal,
 ): () => void {
-  const context = primeAudioContext()
-  if (!context) {
-    return () => undefined
-  }
+  let detachGraph: (() => void) | null = null
 
-  const source = context.createMediaStreamSource(stream)
-  // ScriptProcessor is deliberately used for this one-day Safari demo fallback: it is available
-  // synchronously in the existing audio context, while AudioWorklet would require another public
-  // module and an asynchronous load after the microphone gesture.
-  const processor = context.createScriptProcessor(4096, 1, 1)
-  const silentSink = context.createGain()
-  silentSink.gain.value = 0
+  const unsubscribe = audio.subscribe((analyser) => {
+    detachGraph?.()
+    detachGraph = null
 
-  processor.addEventListener('audioprocess', (event) => {
-    event.outputBuffer.getChannelData(0).fill(0)
-    if (
-      signal.aborted ||
-      channel.readyState !== 'open' ||
-      channel.bufferedAmount >= MAX_DATA_CHANNEL_BUFFER_BYTES
-    ) {
+    if (!analyser) {
       return
     }
-    channel.send(
-      JSON.stringify({
-        type: 'input_audio_buffer.append',
-        audio: encodePcm24k(event.inputBuffer.getChannelData(0), context.sampleRate),
-      }),
-    )
+
+    const context = analyser.context
+    // ScriptProcessor is deliberately used for this one-day Safari demo fallback: it is
+    // synchronous, while AudioWorklet needs another public module and an asynchronous load after
+    // the microphone gesture. Crucially, it branches from the existing analyser instead of
+    // creating a second MediaStreamAudioSourceNode for the same Safari microphone track.
+    const processor = context.createScriptProcessor(4096, 1, 1)
+    const silentSink = context.createGain()
+    silentSink.gain.value = 0
+
+    processor.addEventListener('audioprocess', (event) => {
+      event.outputBuffer.getChannelData(0).fill(0)
+      if (
+        signal.aborted ||
+        channel.readyState !== 'open' ||
+        channel.bufferedAmount >= MAX_DATA_CHANNEL_BUFFER_BYTES
+      ) {
+        return
+      }
+      channel.send(
+        JSON.stringify({
+          type: 'input_audio_buffer.append',
+          audio: encodePcm24k(event.inputBuffer.getChannelData(0), context.sampleRate),
+        }),
+      )
+    })
+
+    analyser.connect(processor)
+    processor.connect(silentSink)
+    silentSink.connect(context.destination)
+
+    detachGraph = () => {
+      analyser.disconnect(processor)
+      processor.disconnect()
+      silentSink.disconnect()
+    }
   })
 
-  source.connect(processor)
-  processor.connect(silentSink)
-  silentSink.connect(context.destination)
-
   return () => {
-    processor.disconnect()
-    source.disconnect()
-    silentSink.disconnect()
+    unsubscribe()
+    detachGraph?.()
   }
 }
 
@@ -462,7 +474,7 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
       // gpt-live-transcribe rejects server and semantic VAD, and its transcription buffer is not
       // populated by Safari's RTP track. Append explicit 24 kHz PCM over the same data channel,
       // then commit only after the local analyser has observed a real phrase and pause.
-      stopPcmStream = startPcmStream(stream, events, controller.signal)
+      stopPcmStream = startPcmStream(audio, events, controller.signal)
       stopManualCommit = startManualCommitLoop(
         audio,
         () => events.send(JSON.stringify({ type: 'input_audio_buffer.commit' })),
