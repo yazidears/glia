@@ -81,4 +81,7 @@ def test_websocket_reconciles_deltas_and_returns_stable_intent() -> None:
     assert completed["complete"] is True
     assert intent["type"] == "intent.updated"
     assert intent["stable"] is True
+    assert intent["source"] == "fixture"
+    assert intent["should_discover"] is True
+    assert intent["change_reasons"] == ["initial"]
     assert intent["intent"]["moods"] == ["cold", "lonely"]

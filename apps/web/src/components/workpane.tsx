@@ -1,29 +1,13 @@
 import type { DiscoverResponse, ResolvedEntity } from '@glia/api-client'
-import { motion, type Transition, useReducedMotion, type Variants } from 'motion/react'
+import type { CSSProperties } from 'react'
 import Markdown, { type Components } from 'react-markdown'
 import { EvidenceCard } from '@/components/evidence-card'
+import { IdeaBoard } from '@/components/idea-board'
 import { DiscoveryError, useDiscovery } from '@/hooks/use-discovery'
-import { cn, INSTANT, SPRING } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 
 interface WorkpaneProps {
   className?: string
-}
-
-/**
- * Sections arrive as a wave rather than a flash — entity, then answer, then evidence.
- *
- * `shown` carries a real property and not only a `transition`. A variant with nothing to
- * animate gives Motion no target, the label stops propagating, and the children sit at
- * `hidden` forever — which renders as an empty workpane holding a perfectly good answer.
- */
-const CONTAINER: Variants = {
-  hidden: { opacity: 0 },
-  shown: { opacity: 1, transition: { staggerChildren: 0.06, delayChildren: 0.04 } },
-}
-
-const ITEM: Variants = {
-  hidden: { opacity: 0, y: 10 },
-  shown: { opacity: 1, y: 0 },
 }
 
 /**
@@ -108,7 +92,10 @@ function Skeleton() {
 
 function ResolvedEntityHeader({ entity }: { entity: ResolvedEntity }) {
   return (
-    <motion.header variants={ITEM} className="flex max-w-[65ch] flex-col gap-2">
+    <header
+      style={{ '--discovery-index': 0 } as CSSProperties}
+      className="discovery-item flex max-w-[65ch] flex-col gap-2"
+    >
       <div className="flex flex-wrap items-center gap-2.5">
         <h2 className="font-medium text-lg text-neutral-900 tracking-tight dark:text-neutral-50">
           {entity.name}
@@ -124,20 +111,20 @@ function ResolvedEntityHeader({ entity }: { entity: ResolvedEntity }) {
           {entity.description}
         </p>
       ) : null}
-    </motion.header>
+    </header>
   )
 }
 
-function Result({ data, transition }: { data: DiscoverResponse; transition: Transition }) {
+function Result({ data }: { data: DiscoverResponse }) {
   if (data.status === 'rate_limited' || data.status === 'budget_exhausted') {
     return (
-      <motion.div variants={ITEM}>
+      <div className="discovery-item">
         <Note>
           {data.status === 'rate_limited'
             ? 'Source lookup is rate limited right now. The transcript keeps running.'
             : `The source-lookup budget is spent (${data.ledger.spent} of ${data.ledger.budget} credits). No further queries will be made.`}
         </Note>
-      </motion.div>
+      </div>
     )
   }
 
@@ -145,10 +132,10 @@ function Result({ data, transition }: { data: DiscoverResponse; transition: Tran
   // the honest answer — an unsourced model answer must never be dressed up as a grounded one.
   if (data.status === 'empty' || !data.answer) {
     return (
-      <motion.div variants={ITEM} className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2">
         {data.entity ? <ResolvedEntityHeader entity={data.entity} /> : null}
         <Note>No cited sources for this yet.</Note>
-      </motion.div>
+      </div>
     )
   }
 
@@ -156,37 +143,49 @@ function Result({ data, transition }: { data: DiscoverResponse; transition: Tran
     <>
       {data.entity ? <ResolvedEntityHeader entity={data.entity} /> : null}
 
-      <motion.div variants={ITEM} className="flex max-w-[65ch] flex-col gap-4">
+      <div
+        style={{ '--discovery-index': 1 } as CSSProperties}
+        className="discovery-item flex max-w-[65ch] flex-col gap-4"
+      >
         <Markdown components={MARKDOWN_COMPONENTS}>{data.answer}</Markdown>
-      </motion.div>
+      </div>
 
       {data.context.length > 0 ? (
-        <motion.section variants={ITEM} aria-label="Evidence" className="flex flex-col gap-6">
+        <section aria-label="Evidence" className="flex flex-col gap-6">
           <h3 className="font-medium text-[11px] text-neutral-400 uppercase tracking-[0.1em] dark:text-neutral-500">
             Evidence
           </h3>
-          {data.context.map((item) => (
-            <EvidenceCard key={item.id} item={item} transition={transition} />
+          {data.context.map((item, index) => (
+            <EvidenceCard key={item.id} item={item} index={index} />
           ))}
-        </motion.section>
+        </section>
       ) : null}
     </>
   )
 }
 
 /**
- * The right two thirds of the working layout: what Cala found for the current settled turn.
+ * The right two thirds of the working layout.
  *
- * Stays empty until there is something true to show. Every state below is a real outcome —
- * none of them is a crash, and none of them invents an answer Cala did not cite.
+ * Two things want this space and only one of them is real yet. Until the distiller gate opens
+ * and Cala answers, the placeholder `IdeaBoard` holds it — clearly badged `demo`, because
+ * nothing on it is sourced. The moment a lookup is in flight or has landed, the pane belongs to
+ * what Cala actually cited: sourced content outranks a placeholder, and the two must never be
+ * on screen together or the demo stickers read as evidence.
+ *
+ * Every state below is a real outcome. None is a crash, and none invents an answer Cala did
+ * not cite.
  */
 export function Workpane({ className }: WorkpaneProps) {
   const { data, isFetching, error } = useDiscovery()
-  const prefersReducedMotion = useReducedMotion() === true
-  const transition = prefersReducedMotion ? INSTANT : SPRING
 
   const loading = isFetching && !data
   const correlationId = error instanceof DiscoveryError ? error.correlationId : null
+
+  // Nothing asked, nothing answered, nothing failed: the gate has not opened yet.
+  if (!loading && !error && !data) {
+    return <IdeaBoard className={className} />
+  }
 
   return (
     <section
@@ -195,28 +194,23 @@ export function Workpane({ className }: WorkpaneProps) {
       className={cn('min-h-0 overflow-y-auto p-5 md:p-8', className)}
     >
       {/*
-        No `AnimatePresence`: these states swap once per settled turn and nothing here needs to
-        animate on the way out. Only the entry is animated, and the `key` is what replays it
-        when a new turn arrives.
+        Entry only, no exit. `main` dropped the `motion` dependency when the session screen went
+        CSS-only, so these animate through `.discovery-item` in index.css on the same curve as
+        `workspace-enter` and `sticker-enter`, and honour the existing reduced-motion opt-out.
       */}
       {loading ? (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={transition}>
+        <div className="discovery-item">
           <Skeleton />
-        </motion.div>
+        </div>
       ) : error ? (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={transition}>
+        <div className="discovery-item">
           <Note>Source lookup failed. Reference {correlationId ?? 'unknown'}.</Note>
-        </motion.div>
+        </div>
       ) : data ? (
-        <motion.div
-          key={`${data.session_id}:${data.query}`}
-          variants={CONTAINER}
-          initial="hidden"
-          animate="shown"
-          className="flex flex-col gap-8"
-        >
-          <Result data={data} transition={transition} />
-        </motion.div>
+        // Keyed on the query so a new settled turn remounts the subtree and replays the entry.
+        <div key={`${data.session_id}:${data.query}`} className="flex flex-col gap-8">
+          <Result data={data} />
+        </div>
       ) : null}
     </section>
   )

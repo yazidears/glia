@@ -50,22 +50,23 @@ async function discover(payload: DiscoverRequest): Promise<DiscoverResponse> {
 }
 
 /**
- * Asks the backend what the speaker is talking about, once per settled turn.
+ * Asks the backend what the speaker is talking about, once per turn the distiller lets through.
  *
- * The query key is the settled transcript, which the store only advances when the backend
- * marks a turn `stable`. That is the client half of the guard: an interim delta never changes
- * the key, and a settled turn that repeats the same words never changes it either, so neither
- * can start a request. The server debounces and caches independently — the browser is not the
- * thing holding the credit budget, and this guard exists to keep the network quiet, not to be
- * trusted with the money.
+ * The query key is `discoveryTranscript`, which the store only advances when the backend sends
+ * `should_discover` — its own gate, evaluated on settled turns only, and true just when the
+ * distilled attributes moved materially. That is the client half of the guard: an interim
+ * delta never changes the key, and neither does a settled turn that said nothing new, so
+ * neither can start a request. The server debounces, caches and meters independently — the
+ * browser is not the thing holding the credit budget, and this guard exists to keep the
+ * network quiet, not to be trusted with the money.
  */
 export function useDiscovery(): UseQueryResult<DiscoverResponse, Error> {
   const sessionId = useSessionStore((state) => state.sessionId)
-  const settledTranscript = useSessionStore((state) => state.settledTranscript)
-  const enabled = Boolean(sessionId) && settledTranscript.trim().length > 0
+  const discoveryTranscript = useSessionStore((state) => state.discoveryTranscript)
+  const enabled = Boolean(sessionId) && discoveryTranscript.trim().length > 0
 
   return useQuery({
-    queryKey: ['discovery', sessionId, settledTranscript],
+    queryKey: ['discovery', sessionId, discoveryTranscript],
     enabled,
     // Nothing about a settled turn changes after the fact, so nothing should ever refetch it.
     staleTime: Number.POSITIVE_INFINITY,
@@ -73,6 +74,6 @@ export function useDiscovery(): UseQueryResult<DiscoverResponse, Error> {
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     retry: false,
-    queryFn: () => discover({ transcript: settledTranscript, session_id: sessionId ?? '' }),
+    queryFn: () => discover({ transcript: discoveryTranscript, session_id: sessionId ?? '' }),
   })
 }

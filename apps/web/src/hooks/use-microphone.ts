@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { closeAudioContext, primeAudioContext } from '@/hooks/use-audio-level'
 import { type MicState, useSessionStore } from '@/stores/session'
 
@@ -20,6 +20,21 @@ function release(stream: MediaStream | null): void {
 }
 
 /**
+ * A track can be ended by Safari, macOS, or a hot reload without going through our toggle.
+ * Only clear the store when this is still the active stream so an old callback cannot stop a
+ * newer microphone session.
+ */
+function releaseIfCurrent(stream: MediaStream): void {
+  const state = useSessionStore.getState()
+  if (state.stream !== stream) {
+    return
+  }
+
+  release(stream)
+  state.setMic('idle', null)
+}
+
+/**
  * `NotAllowedError` is a refusal the user can reverse, so it stays actionable. `NotFoundError`
  * means there is no capture device at all, which no amount of clicking will fix — that, and any
  * failure we do not recognise, is reported as `unsupported` rather than blamed on the user.
@@ -37,12 +52,21 @@ function classifyFailure(error: unknown): MicState {
 export function useMicrophone(): { micState: MicState; toggle: () => void } {
   const micState = useSessionStore((state) => state.micState)
   const setMic = useSessionStore((state) => state.setMic)
+  const mounted = useRef(true)
 
   // Release the device when this screen goes away. Without it a hot reload leaves the browser's
   // recording indicator lit, and an app that looks like it is still listening reads as broken.
   useEffect(() => {
+    mounted.current = true
     return () => {
-      release(useSessionStore.getState().stream)
+      mounted.current = false
+      const state = useSessionStore.getState()
+      release(state.stream)
+      // Keep the store truthful. HMR used to leave `micState = granted` with an ended track,
+      // which rendered a Listening button and a completely flat waveform.
+      if (state.stream || state.micState === 'granted' || state.micState === 'requesting') {
+        state.setMic('idle', null)
+      }
     }
   }, [])
 
@@ -71,7 +95,28 @@ export function useMicrophone(): { micState: MicState; toggle: () => void } {
     setMic('requesting', null)
     try {
       const granted = await mediaDevices.getUserMedia({ audio: true })
+
+      // The component may have been replaced while Safari's permission prompt was open.
+      if (!mounted.current) {
+        release(granted)
+        return
+      }
+
+      const audioTracks = granted.getAudioTracks()
+      if (audioTracks.length === 0) {
+        release(granted)
+        setMic('unsupported', null)
+        return
+      }
+
+      for (const track of audioTracks) {
+        track.addEventListener('ended', () => releaseIfCurrent(granted), { once: true })
+      }
+
       setMic('granted', granted)
+      // Permission is the product transition: once the microphone is live, reveal the transcript
+      // workspace immediately so the user sees the empty "Speak now." state before speaking.
+      useSessionStore.getState().startSession()
     } catch (error) {
       // The context was primed by the click that led here; nothing will ever feed it now.
       release(null)

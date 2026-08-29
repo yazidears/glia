@@ -5,7 +5,13 @@ export interface VisualIntent {
   moods: string[]
   styles: string[]
   palette: string[]
+  composition: string
+  medium: string
+  era: string
 }
+
+export type IntentSource = 'fixture' | 'local' | 'pioneer'
+export type IntentChangeReason = 'initial' | 'subject' | 'medium' | 'era' | 'visual_attributes'
 
 export interface TranscriptAccepted {
   type: 'transcript.accepted'
@@ -20,10 +26,18 @@ export interface IntentUpdated {
   transcript: string
   intent: VisualIntent
   stable: boolean
+  source: IntentSource
+  should_discover: boolean
+  change_reasons: IntentChangeReason[]
 }
 
 export type ServerMessage =
-  | { type: 'session.ready'; session_id: string; debounce_ms: number; heartbeat_interval_ms: number }
+  | {
+      type: 'session.ready'
+      session_id: string
+      debounce_ms: number
+      heartbeat_interval_ms: number
+    }
   | TranscriptAccepted
   | IntentUpdated
   | { type: 'pong'; event_id: string }
@@ -50,6 +64,11 @@ function hasNumber(value: UnknownRecord, key: string): boolean {
 
 function hasBoolean(value: UnknownRecord, key: string): boolean {
   return typeof value[key] === 'boolean'
+}
+
+function hasStringArray(value: UnknownRecord, key: string): boolean {
+  const candidate = value[key]
+  return Array.isArray(candidate) && candidate.every((item) => typeof item === 'string')
 }
 
 function parseJson(raw: string): unknown {
@@ -84,21 +103,35 @@ function parseVisualIntent(value: unknown): VisualIntent | null {
   if (!isRecord(value) || !hasString(value, 'subject')) {
     return null
   }
-  const moods = value.moods
-  const styles = value.styles
-  const palette = value.palette
   if (
-    !Array.isArray(moods) ||
-    !moods.every((item) => typeof item === 'string') ||
-    !Array.isArray(styles) ||
-    !styles.every((item) => typeof item === 'string') ||
-    !Array.isArray(palette) ||
-    !palette.every((item) => typeof item === 'string')
+    !hasStringArray(value, 'moods') ||
+    !hasStringArray(value, 'styles') ||
+    !hasStringArray(value, 'palette') ||
+    !hasString(value, 'composition') ||
+    !hasString(value, 'medium') ||
+    !hasString(value, 'era')
   ) {
     return null
   }
-  return { subject: value.subject as string, moods, styles, palette }
+  return {
+    subject: value.subject as string,
+    moods: value.moods as string[],
+    styles: value.styles as string[],
+    palette: value.palette as string[],
+    composition: value.composition as string,
+    medium: value.medium as string,
+    era: value.era as string,
+  }
 }
+
+const intentSources = new Set<IntentSource>(['fixture', 'local', 'pioneer'])
+const intentChangeReasons = new Set<IntentChangeReason>([
+  'initial',
+  'subject',
+  'medium',
+  'era',
+  'visual_attributes',
+])
 
 export function parseServerMessage(raw: string): ServerMessage | null {
   const value = parseJson(raw)
@@ -116,7 +149,11 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       }
       return null
     case 'transcript.accepted':
-      if (hasString(value, 'item_id') && hasString(value, 'transcript') && hasBoolean(value, 'complete')) {
+      if (
+        hasString(value, 'item_id') &&
+        hasString(value, 'transcript') &&
+        hasBoolean(value, 'complete')
+      ) {
         return value as unknown as TranscriptAccepted
       }
       return null
@@ -126,7 +163,14 @@ export function parseServerMessage(raw: string): ServerMessage | null {
         intent &&
         hasNumber(value, 'revision') &&
         hasString(value, 'transcript') &&
-        hasBoolean(value, 'stable')
+        hasBoolean(value, 'stable') &&
+        hasString(value, 'source') &&
+        intentSources.has(value.source as IntentSource) &&
+        hasBoolean(value, 'should_discover') &&
+        hasStringArray(value, 'change_reasons') &&
+        (value.change_reasons as string[]).every((reason) =>
+          intentChangeReasons.has(reason as IntentChangeReason),
+        )
       ) {
         return {
           type: 'intent.updated',
@@ -134,6 +178,9 @@ export function parseServerMessage(raw: string): ServerMessage | null {
           transcript: value.transcript as string,
           intent,
           stable: value.stable as boolean,
+          source: value.source as IntentSource,
+          should_discover: value.should_discover as boolean,
+          change_reasons: value.change_reasons as IntentChangeReason[],
         }
       }
       return null
@@ -141,7 +188,11 @@ export function parseServerMessage(raw: string): ServerMessage | null {
     case 'pong':
       return hasString(value, 'event_id') ? (value as unknown as ServerMessage) : null
     case 'error':
-      if (hasString(value, 'code') && hasString(value, 'detail') && hasBoolean(value, 'recoverable')) {
+      if (
+        hasString(value, 'code') &&
+        hasString(value, 'detail') &&
+        hasBoolean(value, 'recoverable')
+      ) {
         return value as unknown as ServerMessage
       }
       return null

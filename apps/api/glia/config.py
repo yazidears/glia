@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     openai_realtime_token_ttl: int = Field(default=600, ge=10, le=7200)
     openai_request_timeout_seconds: float = Field(default=8.0, gt=0, le=30)
 
+    pioneer_api_key: SecretStr | None = None
+    pioneer_base_url: str = "https://api.pioneer.ai"
+    pioneer_distill_model: str = "fastino/gliner2-multi-v1"
+    pioneer_request_timeout_seconds: float = Field(default=15.0, gt=0, le=15)
+    pioneer_max_retries: int = Field(default=1, ge=0, le=3)
+    pioneer_inference_threshold: float = Field(default=0.5, ge=0, le=1)
+    distill_gate_jaccard_threshold: float = Field(default=0.4, ge=0, le=1)
+
     realtime_debounce_ms: int = Field(default=200, ge=50, le=2_000)
     realtime_max_message_bytes: int = Field(default=64_000, ge=1_024, le=1_000_000)
 

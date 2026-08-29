@@ -24,6 +24,7 @@ from glia.discovery.cala import (
     extract_subject,
     join_evidence,
 )
+from glia.realtime.distiller import build_intent_distiller
 from glia.realtime.socket import RealtimeSocketSession
 from glia.realtime.token import (
     OpenAIRealtimeTokenBroker,
@@ -57,6 +58,13 @@ async def health(settings: Annotated[Settings, Depends(get_settings)]) -> dict[s
         "service": "glia-api",
         "mode": settings.demo_mode,
         "realtime": "configured" if settings.openai_api_key else "unconfigured",
+        "distiller": (
+            "fixture"
+            if settings.demo_mode == "fixture"
+            else "configured"
+            if settings.pioneer_api_key
+            else "unconfigured"
+        ),
     }
 
 
@@ -261,6 +269,8 @@ async def realtime_socket(websocket: WebSocket) -> None:
         websocket,
         debounce_ms=settings.realtime_debounce_ms,
         max_message_bytes=settings.realtime_max_message_bytes,
+        distiller=build_intent_distiller(settings),
+        gate_jaccard_threshold=settings.distill_gate_jaccard_threshold,
     )
     await session.run()
 

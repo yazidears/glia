@@ -57,6 +57,19 @@ class VisualIntent(StrictModel):
     moods: list[str]
     styles: list[str]
     palette: list[str]
+    composition: str = ""
+    medium: str = ""
+    era: str = ""
+
+
+IntentSource = Literal["fixture", "local", "pioneer"]
+IntentChangeReason = Literal[
+    "initial",
+    "subject",
+    "medium",
+    "era",
+    "visual_attributes",
+]
 
 
 class SessionReady(StrictModel):
@@ -79,6 +92,9 @@ class IntentUpdated(StrictModel):
     transcript: str
     intent: VisualIntent
     stable: bool
+    source: IntentSource
+    should_discover: bool = False
+    change_reasons: list[IntentChangeReason] = Field(default_factory=list)
 
 
 class Pong(StrictModel):

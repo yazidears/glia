@@ -1,6 +1,5 @@
 import type { EvidenceItem, EvidenceOrigin } from '@glia/api-client'
-import { motion, type Transition } from 'motion/react'
-import { useState } from 'react'
+import { type CSSProperties, useState } from 'react'
 import { cn } from '@/lib/utils'
 
 /**
@@ -65,10 +64,11 @@ function OriginLine({ origin }: OriginLineProps) {
 
 interface EvidenceCardProps {
   item: EvidenceItem
-  transition: Transition
+  /** Position in the evidence list, which is all the stagger needs. */
+  index: number
 }
 
-export function EvidenceCard({ item, transition }: EvidenceCardProps) {
+export function EvidenceCard({ item, index }: EvidenceCardProps) {
   const [expanded, setExpanded] = useState(false)
 
   // Deduped by identity rather than position: the same document cited twice is one citation,
@@ -87,15 +87,10 @@ export function EvidenceCard({ item, transition }: EvidenceCardProps) {
   const canExpand = hidden > 0 || item.content.length > 320
 
   return (
-    <motion.article
-      layout
-      transition={transition}
-      variants={{
-        hidden: { opacity: 0, y: 10 },
-        shown: { opacity: 1, y: 0 },
-      }}
+    <article
+      style={{ '--discovery-index': index + 2 } as CSSProperties}
       className={cn(
-        'flex flex-col gap-3 border-l py-1 pl-4',
+        'discovery-item flex flex-col gap-3 border-l py-1 pl-4',
         // The only differentiation between evidence that carried the answer and evidence that
         // merely came back is the weight of this rule. Server-side ordering does the rest.
         item.carried_answer
@@ -142,6 +137,6 @@ export function EvidenceCard({ item, transition }: EvidenceCardProps) {
               : 'Show full quote'}
         </button>
       ) : null}
-    </motion.article>
+    </article>
   )
 }
