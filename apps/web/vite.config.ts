@@ -19,6 +19,7 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': 'http://127.0.0.1:8000',
+      '/v1': 'http://127.0.0.1:8000',
       '/ws': {
         target: 'ws://127.0.0.1:8000',
         ws: true,

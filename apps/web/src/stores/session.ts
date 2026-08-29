@@ -27,9 +27,19 @@ interface SessionState {
   connectionError: string | null
   transcript: string
   intent: VisualIntent | null
+  /** The backend's id for this socket, from `session.ready`. Discovery is debounced per session. */
+  sessionId: string | null
+  /**
+   * The transcript as of the last *settled* turn, and the only thing discovery is allowed to
+   * read. Interim deltas move `transcript` many times a second and must never spend a credit,
+   * so they leave this field alone — which makes "unchanged" and "not settled" the same
+   * no-op for any consumer keyed on it.
+   */
+  settledTranscript: string
   setConnection: (connectionState: ConnectionState, connectionError?: string | null) => void
+  setSessionId: (sessionId: string) => void
   setTranscript: (transcript: string) => void
-  setIntent: (intent: VisualIntent, transcript: string) => void
+  setIntent: (intent: VisualIntent, transcript: string, stable: boolean) => void
   resetRealtime: () => void
 }
 
@@ -53,12 +63,27 @@ export const useSessionStore = create<SessionState>()((set) => ({
   connectionError: null,
   transcript: '',
   intent: null,
+  sessionId: null,
+  settledTranscript: '',
   setConnection: (connectionState, connectionError = null) =>
     set({ connectionState, connectionError }),
+  setSessionId: (sessionId) => set({ sessionId }),
   setTranscript: (transcript) =>
     set((state) => ({ transcript, phase: phaseAfter(state, transcript) })),
-  setIntent: (intent, transcript) =>
-    set((state) => ({ intent, transcript, phase: phaseAfter(state, transcript) })),
+  setIntent: (intent, transcript, stable) =>
+    set((state) => ({
+      intent,
+      transcript,
+      settledTranscript: stable ? transcript : state.settledTranscript,
+      phase: phaseAfter(state, transcript),
+    })),
   resetRealtime: () =>
-    set({ connectionState: 'idle', connectionError: null, transcript: '', intent: null }),
+    set({
+      connectionState: 'idle',
+      connectionError: null,
+      transcript: '',
+      intent: null,
+      sessionId: null,
+      settledTranscript: '',
+    }),
 }))

@@ -13,7 +13,7 @@ import { Workpane } from '@/components/workpane'
 import { type AudioLevelHandle, useAudioLevel } from '@/hooks/use-audio-level'
 import { useMicrophone } from '@/hooks/use-microphone'
 import { useRealtimeTranscription } from '@/hooks/use-realtime-transcription'
-import { cn } from '@/lib/utils'
+import { cn, INSTANT, SPRING } from '@/lib/utils'
 import { type MicState, useSessionStore } from '@/stores/session'
 
 const CAPTIONS: Record<MicState, string> = {
@@ -40,10 +40,6 @@ function captionFor(micState: MicState, connectionState: ConnectionState): strin
 
 /** One shared identity, so the hero card and the docked mic are the same element travelling. */
 const MIC_LAYOUT_ID = 'glia-mic'
-
-/** Roughly half a second of settle. A spring, because the card has weight and a duration reads flat. */
-const SPRING: Transition = { type: 'spring', stiffness: 240, damping: 28, mass: 0.9 }
-const INSTANT: Transition = { duration: 0 }
 
 interface MicControlProps {
   variant: 'hero' | 'dock'

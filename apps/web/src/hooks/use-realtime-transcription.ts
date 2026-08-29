@@ -173,6 +173,7 @@ export function useRealtimeTranscription(): void {
   const setConnection = useSessionStore((state) => state.setConnection)
   const setTranscript = useSessionStore((state) => state.setTranscript)
   const setIntent = useSessionStore((state) => state.setIntent)
+  const setSessionId = useSessionStore((state) => state.setSessionId)
   const resetRealtime = useSessionStore((state) => state.resetRealtime)
 
   useEffect(() => {
@@ -213,10 +214,14 @@ export function useRealtimeTranscription(): void {
       if (!message) {
         return
       }
-      if (message.type === 'transcript.accepted') {
+      if (message.type === 'session.ready') {
+        setSessionId(message.session_id)
+      } else if (message.type === 'transcript.accepted') {
         setTranscript(message.transcript)
       } else if (message.type === 'intent.updated') {
-        setIntent(message.intent, message.transcript)
+        // `stable` is the settled-turn signal, and the store keeps the two apart. Passing it
+        // through is what stops an interim delta from ever reaching discovery.
+        setIntent(message.intent, message.transcript, message.stable)
       } else if (message.type === 'error' && !message.recoverable) {
         setConnection('error', message.detail)
       }
@@ -323,5 +328,5 @@ export function useRealtimeTranscription(): void {
       peer.close()
       backend?.close()
     }
-  }, [resetRealtime, setConnection, setIntent, setTranscript, stream])
+  }, [resetRealtime, setConnection, setIntent, setSessionId, setTranscript, stream])
 }
