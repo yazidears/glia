@@ -134,6 +134,11 @@ export interface paths {
          *     what goes out as `image_urls` is always a URL fal can read. Our own `/api/image` proxy is
          *     never sent: fal cannot reach localhost, and the pin's display URL is not its origin.
          *
+         *     Grounding is a real input too, and an optional one. The client sends back what Cala already
+         *     answered about this subject so the prompt can be specific about what the thing looks like;
+         *     an empty list is the ordinary case and produces exactly the prompt it would have produced
+         *     before, which is why a discovery lane that failed cannot take the generation down with it.
+         *
          *     A pin that cannot be fetched or uploaded is dropped by id rather than fatal. The generation
          *     runs on the pins that worked, `reference_count` reports what actually conditioned the image,
          *     and `unavailable_references` names the ones that did not.
@@ -260,6 +265,8 @@ export interface components {
             transcript: string;
             /** Pins */
             pins?: components["schemas"]["PinnedRef"][];
+            /** Grounding */
+            grounding?: string[];
         };
         /** GenerateResponse */
         GenerateResponse: {

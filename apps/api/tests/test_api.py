@@ -179,23 +179,30 @@ def test_websocket_does_not_rediscover_an_unchanged_subject() -> None:
                     "transcript": transcript,
                 }
             )
-        # accepted, intent, batch for the first turn; accepted, intent for the second.
-        messages = [socket.receive_json() for _ in range(5)]
-        # Long enough for a second discovery to have cleared its debounce.
+        # Long enough for a second discovery to have cleared its debounce and landed.
         time.sleep(1.5)
         socket.send_json({"type": "ping", "event_id": "ping-1"})
-        following = socket.receive_json()
+        # The ping is the terminator, not a message count. `discovery/service.py` streams each
+        # lane's results as a wave the moment they land, so how many `candidates.batch` frames
+        # one turn produces is decided by which lane answered first — a fixed `range(5)` was
+        # asserting on the network's timing rather than on the gate. Frames are ordered on one
+        # connection, so everything both turns had to say is already queued before the pong.
+        received = []
+        while True:
+            message = socket.receive_json()
+            if message["type"] == "pong":
+                break
+            received.append(message)
 
-    assert sorted(message["type"] for message in messages) == [
-        "candidates.batch",
-        "intent.updated",
-        "intent.updated",
-        "transcript.accepted",
-        "transcript.accepted",
-    ]
-    # The second turn sharpens the intent but names the same subject, so the
-    # grid is not refilled and nothing else is waiting behind the pong.
-    assert following == {"type": "pong", "event_id": "ping-1"}
+    assert message == {"type": "pong", "event_id": "ping-1"}
+    assert sum(1 for item in received if item["type"] == "transcript.accepted") == 2
+    assert sum(1 for item in received if item["type"] == "intent.updated") == 2
+    # The claim under test, stated as the thing the gate actually controls. The second turn
+    # sharpens the intent but names the same subject, so exactly one revision ever filled the
+    # grid — however many waves it took to fill it.
+    batches = [item for item in received if item["type"] == "candidates.batch"]
+    assert batches
+    assert len({batch["revision"] for batch in batches}) == 1
 
 
 def test_health_reports_every_lane_so_a_dead_lane_needs_no_log_reading() -> None:
