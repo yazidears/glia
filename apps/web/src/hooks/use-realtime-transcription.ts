@@ -174,7 +174,6 @@ export function useRealtimeTranscription(): void {
   const setConnection = useSessionStore((state) => state.setConnection)
   const setTranscriptState = useSessionStore((state) => state.setTranscriptState)
   const setIntent = useSessionStore((state) => state.setIntent)
-  const resetRealtime = useSessionStore((state) => state.resetRealtime)
 
   useEffect(() => {
     if (!stream) {
@@ -182,15 +181,19 @@ export function useRealtimeTranscription(): void {
       return
     }
 
-    resetRealtime()
-
     const controller = new AbortController()
     const peer = new RTCPeerConnection()
     const events = peer.createDataChannel('oai-events')
     let backend: WebSocket | null = null
     let providerTranscriptionSeen = false
-    let nextItemOrder = 0
-    const transcriptItems = new Map<string, TranscriptItem>()
+    const existingSegments = useSessionStore.getState().transcriptSegments
+    let nextItemOrder = existingSegments.length
+    const transcriptItems = new Map<string, TranscriptItem>(
+      existingSegments.map((segment, order) => [
+        segment.itemId,
+        { order, text: segment.text, complete: segment.complete },
+      ]),
+    )
     const seenProviderEvents = new Set<string>()
 
     const updateTranscriptItem = (
@@ -374,5 +377,5 @@ export function useRealtimeTranscription(): void {
       peer.close()
       backend?.close()
     }
-  }, [resetRealtime, setConnection, setIntent, setTranscriptState, stream])
+  }, [setConnection, setIntent, setTranscriptState, stream])
 }
