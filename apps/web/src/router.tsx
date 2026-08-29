@@ -1,16 +1,16 @@
 import { createRootRoute, createRoute, createRouter, Outlet } from '@tanstack/react-router'
-import { LandingScreen } from '@/screens/landing-screen'
+import { SessionScreen } from '@/screens/session-screen'
 
 const rootRoute = createRootRoute({ component: Outlet })
 
-const landingRoute = createRoute({
+const sessionRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  component: LandingScreen,
+  component: SessionScreen,
 })
 
 export const router = createRouter({
-  routeTree: rootRoute.addChildren([landingRoute]),
+  routeTree: rootRoute.addChildren([sessionRoute]),
 })
 
 declare module '@tanstack/react-router' {
