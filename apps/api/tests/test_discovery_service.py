@@ -63,7 +63,6 @@ def service(*lanes: StubLane, **overrides: float | int) -> DiscoveryService:
         "wave_size": 4,
         "wave_delay_seconds": 0.0,
         "lane_timeout_seconds": 1.0,
-        "lane_stagger_seconds": 0.05,
         "lane_min_results": 4,
         "lane_max_attempts": 3,
         "cache_size": 8,
@@ -78,7 +77,6 @@ def service(*lanes: StubLane, **overrides: float | int) -> DiscoveryService:
         wave_size=int(settings["wave_size"]),
         wave_delay_seconds=float(settings["wave_delay_seconds"]),
         lane_timeout_seconds=float(settings["lane_timeout_seconds"]),
-        lane_stagger_seconds=float(settings["lane_stagger_seconds"]),
         lane_min_results=int(settings["lane_min_results"]),
         lane_max_attempts=int(settings["lane_max_attempts"]),
         cache_size=int(settings["cache_size"]),
@@ -233,3 +231,66 @@ async def test_fixture_mode_emits_a_batch_without_touching_the_network() -> None
     assert len(shipped) == len(FIXTURE_CANDIDATES)
     assert collector.batches
     assert all(item.licence and item.width and item.height for item in shipped)
+
+
+@pytest.mark.asyncio
+async def test_a_slow_lane_never_delays_the_other_lanes_first_wave() -> None:
+    """The failure this ticket exists for: one lane's latency held the whole grid.
+
+    The fast lane's candidates must be on the wire while the slow lane is still
+    walking its ladder, not after it finishes.
+    """
+    slow = StubLane("commons", {"observatory": [candidate("c0")]}, delay=0.4)
+    fast = StubLane("openverse", {"observatory": [candidate(f"o{index}") for index in range(4)]})
+
+    first_wave_at: list[float] = []
+
+    class Timed(Collector):
+        async def __call__(self, batch: CandidatesBatch) -> None:
+            first_wave_at.append(asyncio.get_running_loop().time() - started)
+            await super().__call__(batch)
+
+    collector = Timed()
+    started = asyncio.get_running_loop().time()
+    await service(slow, fast, lane_timeout_seconds=2.0).discover(
+        queries=("observatory",), revision=1, emit=collector
+    )
+
+    assert collector.ids[:4] == ["o0", "o1", "o2", "o3"]
+    assert first_wave_at[0] < 0.3, "the fast lane waited for the slow one"
+
+
+@pytest.mark.asyncio
+async def test_every_lane_reports_its_health_after_a_run() -> None:
+    alive = StubLane("openverse", {"observatory": [candidate("o0")]})
+    dead = StubLane("commons", {}, fails=True)
+    instance = service(dead, alive)
+
+    await instance.discover(queries=("observatory",), revision=1, emit=Collector())
+    health = {report.lane: report for report in await instance.probe()}
+
+    assert health["commons"].status == "unavailable"
+    assert health["openverse"].status == "ok"
+    assert health["openverse"].count == 1
+
+
+@pytest.mark.asyncio
+async def test_a_lane_nobody_has_exercised_is_probed() -> None:
+    """A lane with no observed traffic is asked, not reported as unknown."""
+    lane = StubLane("openverse", {"observatory": [candidate("o0")]})
+    instance = service(lane)
+
+    health = await instance.probe()
+
+    assert [report.status for report in health] == ["ok"]
+    assert lane.queries == ["observatory"]
+
+
+@pytest.mark.asyncio
+async def test_a_hanging_lane_reports_a_timeout_rather_than_going_quiet() -> None:
+    lane = StubLane("commons", {"observatory": [candidate("c0")]}, delay=5.0)
+    instance = service(lane, lane_timeout_seconds=0.1)
+
+    await instance.discover(queries=("observatory",), revision=1, emit=Collector())
+
+    assert [report.status for report in await instance.probe()] == ["timeout"]

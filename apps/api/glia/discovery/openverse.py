@@ -91,8 +91,14 @@ class OpenverseLane:
         ]
 
     async def _access_token(self, client: httpx.AsyncClient) -> str | None:
-        """Return a bearer token, or None to run the lane anonymously."""
-        if self._client_id is None or self._client_secret is None:
+        """Return a bearer token, or None to run the lane anonymously.
+
+        Unset credentials must cost nothing. `OPENVERSE_CLIENT_ID=` in an env file is
+        an empty string, not a missing value, and posting it is a guaranteed 401 that
+        was measured at 1.63s — a fifth of the old lane budget spent to learn what the
+        empty string already said. Falsy is absent, whatever shape the absence took.
+        """
+        if not self._client_id or not self._client_secret:
             return None
         if self._token is not None and time.monotonic() < self._token_expires_at:
             return self._token

@@ -11,7 +11,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Health */
+        /**
+         * Health
+         * @description Liveness plus the one capability the client cannot infer: can images arrive?
+         *
+         *     The lane probe is what makes a dead lane visible without reading logs. It costs
+         *     nothing while the app is in use — a lane outcome seen in the last minute answers
+         *     for itself — and only goes upstream for a lane nobody has exercised.
+         */
         get: operations["health_health_get"];
         put?: never;
         post?: never;
@@ -298,6 +305,28 @@ export interface components {
              * @description Whether this server can return image candidates for a distilled intent. False means the client must not offer an image-bearing output mode.
              */
             image_discovery: boolean;
+            /**
+             * Lanes
+             * @description Per-lane health. `ok` means the lane answered with candidates; every other value means the grid is running on fewer lanes than it should be.
+             */
+            lanes?: components["schemas"]["LaneHealth"][];
+        };
+        /**
+         * LaneHealth
+         * @description One image lane's last known outcome, so a dead lane is visible without logs.
+         */
+        LaneHealth: {
+            /** Lane */
+            lane: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "empty" | "unavailable" | "timeout" | "crashed" | "unknown";
+            /** Count */
+            count: number;
+            /** Elapsed Ms */
+            elapsed_ms: number;
         };
         /**
          * LedgerSnapshot

@@ -11,6 +11,7 @@ export type ResolvedEntity = components['schemas']['CalaEntityHit']
 export type EvidenceItem = components['schemas']['EvidenceItem']
 export type EvidenceOrigin = components['schemas']['CalaOrigin']
 export type LedgerSnapshot = components['schemas']['LedgerSnapshot']
+export type LaneHealth = components['schemas']['LaneHealth']
 
 export type GenerateRequest = components['schemas']['GenerateRequest']
 export type GenerateResponse = components['schemas']['GenerateResponse']
@@ -64,13 +65,20 @@ export function parseHealthResponse(value: unknown): HealthResponse | null {
     realtime: candidate.realtime,
     distiller: candidate.distiller,
     image_discovery: candidate.image_discovery,
+    // Optional on the wire, so an older server that predates the lane probe parses fine
+    // rather than failing the whole health check over a field it never sent.
+    lanes: Array.isArray(candidate.lanes) ? (candidate.lanes as LaneHealth[]) : [],
   }
 }
 
 export {
+  type Candidate,
+  type CandidateLane,
+  type CandidatesBatch,
   type ClientMessage,
   type ConnectionState,
   type IntentUpdated,
+  type LedgerUpdated,
   parseRealtimeTokenResponse,
   parseServerMessage,
   type ServerMessage,

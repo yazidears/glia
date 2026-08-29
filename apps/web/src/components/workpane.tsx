@@ -1,12 +1,15 @@
 import type { DiscoverResponse, ResolvedEntity } from '@glia/api-client'
 import type { CSSProperties } from 'react'
 import Markdown, { type Components } from 'react-markdown'
+import { CandidateGrid } from '@/components/candidate-grid'
 import { EvidenceCard } from '@/components/evidence-card'
 import { GeneratedImage } from '@/components/generated-image'
 import { IdeaBoard } from '@/components/idea-board'
+import { PanelBoundary } from '@/components/panel-boundary'
 import { DiscoveryError, useDiscovery } from '@/hooks/use-discovery'
 import { cn } from '@/lib/utils'
 import { useSessionStore } from '@/stores/session'
+import { useSettings } from '@/stores/settings'
 
 interface WorkpaneProps {
   className?: string
@@ -167,23 +170,63 @@ function Result({ data }: { data: DiscoverResponse }) {
 }
 
 /**
+ * The Cala half of the pane: entity, answer, evidence. Secondary by construction.
+ *
+ * Every branch returns something small. Nothing in here is allowed to be the reason the
+ * pane is empty — the grid above it arrives over the WebSocket and owes this nothing.
+ */
+function CalaPanel() {
+  const { data, isFetching, error } = useDiscovery()
+  const loading = isFetching && !data
+  const correlationId = error instanceof DiscoveryError ? error.correlationId : null
+
+  if (loading) {
+    return (
+      <div className="discovery-item">
+        <Skeleton />
+      </div>
+    )
+  }
+  if (error) {
+    return (
+      <div className="discovery-item">
+        <Note>Source lookup failed. Reference {correlationId ?? 'unknown'}.</Note>
+      </div>
+    )
+  }
+  if (!data) {
+    return null
+  }
+  return (
+    // Keyed on the query so a new settled turn remounts the subtree and replays the entry.
+    <div key={`${data.session_id}:${data.query}`} className="flex flex-col gap-8">
+      <Result data={data} />
+    </div>
+  )
+}
+
+/**
  * The right two thirds of the working layout.
  *
- * Two things want this space and only one of them is real yet. Until the distiller gate opens
- * and Cala answers, the placeholder `IdeaBoard` holds it — clearly badged `demo`, because
- * nothing on it is sourced. The moment a lookup is in flight or has landed, the pane belongs to
- * what Cala actually cited: sourced content outranks a placeholder, and the two must never be
- * on screen together or the demo stickers read as evidence.
+ * The grid is the primary content. It arrives over the WebSocket in waves from the two
+ * open-corpus lanes, and it is the thing the user asked for by speaking. Cala's entity,
+ * answer and evidence sit underneath it as supporting material: useful when it lands,
+ * never load-bearing. That ordering is also the failure model — Cala going slow, erroring,
+ * or being unreachable entirely leaves the grid untouched, and a throw while rendering it
+ * is caught by the boundary rather than blanking the pane.
  *
- * A generated image takes precedence over both. It is the last beat of the session and the only
- * place the prompt that produced it can be read, so it holds the pane until the next one lands.
+ * The `IdeaBoard` placeholder still holds the space, but only while nothing real exists at
+ * all: no images, nothing in flight, nothing answered. The moment either half has something
+ * to show, the demo stickers step aside so they are never mistaken for sourced content.
  *
- * Every state below is a real outcome. None is a crash, and none invents an answer Cala did
- * not cite.
+ * A generated image outranks both. It is the last beat of the session and the only place the
+ * prompt that produced it can be read, so it holds the pane until the next one lands.
  */
 export function Workpane({ className }: WorkpaneProps) {
-  const { data, isFetching, error } = useDiscovery()
+  const output = useSettings((state) => state.output)
   const generated = useSessionStore((state) => state.generation)
+  const candidateCount = useSessionStore((state) => state.candidates.length)
+  const { data, isFetching, error } = useDiscovery()
 
   // A generated image outranks everything: it is the thing the user just asked for, and it is
   // the only surface where the prompt that produced it can be read. Nothing replaces it until
@@ -199,38 +242,39 @@ export function Workpane({ className }: WorkpaneProps) {
     )
   }
 
-  const loading = isFetching && !data
-  const correlationId = error instanceof DiscoveryError ? error.correlationId : null
+  const showGrid = output === 'images' || output === 'both'
+  const showCala = output === 'text' || output === 'both'
+  const hasGrid = showGrid && candidateCount > 0
+  const calaHasSomething = showCala && (isFetching || Boolean(data) || Boolean(error))
 
-  // Nothing asked, nothing answered, nothing failed: the gate has not opened yet.
-  if (!loading && !error && !data) {
+  // Nothing found, nothing asked, nothing failed: the gate has not opened yet.
+  if (!hasGrid && !calaHasSomething) {
     return <IdeaBoard className={className} />
   }
 
   return (
     <section
       aria-label="Workpane"
-      aria-busy={loading}
-      className={cn('min-h-0 overflow-y-auto p-5 md:p-8', className)}
+      aria-busy={showCala && isFetching && !data}
+      className={cn('flex min-h-0 flex-col gap-8 overflow-y-auto p-5 md:p-8', className)}
     >
       {/*
-        Entry only, no exit. `main` dropped the `motion` dependency when the session screen went
-        CSS-only, so these animate through `.discovery-item` in index.css on the same curve as
-        `workspace-enter` and `sticker-enter`, and honour the existing reduced-motion opt-out.
+        Entry only, no exit. `main` dropped the `motion` dependency when the session screen
+        went CSS-only, so tiles animate through `.candidate-tile` and the Cala items through
+        `.discovery-item` in index.css, on the same curve as `workspace-enter` and
+        `sticker-enter`, and both honour the existing reduced-motion opt-out.
       */}
-      {loading ? (
-        <div className="discovery-item">
-          <Skeleton />
-        </div>
-      ) : error ? (
-        <div className="discovery-item">
-          <Note>Source lookup failed. Reference {correlationId ?? 'unknown'}.</Note>
-        </div>
-      ) : data ? (
-        // Keyed on the query so a new settled turn remounts the subtree and replays the entry.
-        <div key={`${data.session_id}:${data.query}`} className="flex flex-col gap-8">
-          <Result data={data} />
-        </div>
+      {hasGrid ? <CandidateGrid /> : null}
+      {showCala ? (
+        <PanelBoundary
+          fallback={
+            <div className="discovery-item">
+              <Note>Sources could not be displayed.</Note>
+            </div>
+          }
+        >
+          <CalaPanel />
+        </PanelBoundary>
       ) : null}
     </section>
   )

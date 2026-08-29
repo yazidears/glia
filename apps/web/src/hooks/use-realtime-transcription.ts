@@ -328,6 +328,7 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
   const setTranscriptState = useSessionStore((state) => state.setTranscriptState)
   const setIntent = useSessionStore((state) => state.setIntent)
   const setSessionId = useSessionStore((state) => state.setSessionId)
+  const appendCandidates = useSessionStore((state) => state.appendCandidates)
 
   useEffect(() => {
     if (!stream) {
@@ -451,6 +452,10 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
         // turn. Passing it through is what stops an interim delta — or a turn that did not move
         // the idea — from ever reaching Cala.
         setIntent(message.intent, message.transcript, message.should_discover)
+      } else if (message.type === 'candidates.batch') {
+        // Waves land while the user is still speaking. Appending is what keeps the grid
+        // stable: the tiles already on screen never move to make room for new ones.
+        appendCandidates(message.candidates)
       } else if (message.type === 'error' && !message.recoverable) {
         setConnection('error', message.detail)
       }
@@ -605,5 +610,5 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
       peer.close()
       backend?.close()
     }
-  }, [audio, setConnection, setIntent, setSessionId, setTranscriptState, stream])
+  }, [appendCandidates, audio, setConnection, setIntent, setSessionId, setTranscriptState, stream])
 }
