@@ -72,6 +72,9 @@ export function useMicrophone(): { micState: MicState; toggle: () => void } {
     try {
       const granted = await mediaDevices.getUserMedia({ audio: true })
       setMic('granted', granted)
+      // Permission is the product transition: once the microphone is live, reveal the transcript
+      // workspace immediately so the user sees the empty "Speak now." state before speaking.
+      useSessionStore.getState().startSession()
     } catch (error) {
       // The context was primed by the click that led here; nothing will ever feed it now.
       release(null)

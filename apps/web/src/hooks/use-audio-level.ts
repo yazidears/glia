@@ -76,8 +76,8 @@ export async function closeAudioContext(): Promise<void> {
  *
  * Per-frame values never reach React or Zustand. A 60fps `setState` would rerender the whole
  * screen sixty times a second; consumers read the analyser directly inside their own animation
- * frame instead. The only thing that ever crosses into React state is the one-shot "speech has
- * arrived" transition, and that fires at most once per session.
+ * frame instead. The detector remains a fallback for restored or externally supplied streams;
+ * the normal permission flow moves into the session as soon as the microphone is granted.
  */
 export function useAudioLevel(): AudioLevelHandle {
   const stream = useSessionStore((state) => state.stream)
