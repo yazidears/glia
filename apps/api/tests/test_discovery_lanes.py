@@ -138,7 +138,7 @@ async def test_commons_maps_thumbnail_url_size_and_licence() -> None:
         params = request.url.params
         assert params["generator"] == "search"
         assert params["gsrnamespace"] == "6"
-        assert params["gsrsearch"] == "observatory"
+        assert params["gsrsearch"] == "observatory filetype:bitmap"
         assert params["iiprop"] == "url|size|extmetadata"
         assert params["iiurlwidth"] == "800"
         assert request.headers["User-Agent"] == "glia-test"

@@ -71,6 +71,7 @@ describe('live candidate messages', () => {
           id: 'commons:apple',
           lane: 'open',
           image_url: 'http://localhost:8000/api/image?url=apple',
+          origin_image_url: 'https://upload.wikimedia.org/apple.jpg',
           source_url: 'https://commons.wikimedia.org/wiki/File:Apple.jpg',
           publisher: 'Wikimedia Commons',
           title: 'Green apple',
@@ -114,6 +115,7 @@ describe('live candidate messages', () => {
           id: 'commons:late-apple',
           lane: 'open',
           image_url: 'http://localhost:8000/api/image?url=late-apple',
+          origin_image_url: 'https://upload.wikimedia.org/late-apple.jpg',
           source_url: 'https://commons.wikimedia.org/wiki/File:LateApple.jpg',
           publisher: 'Wikimedia Commons',
           title: 'Late apple',
@@ -133,6 +135,7 @@ describe('live candidate messages', () => {
       id: 'commons:cats-and-dogs',
       lane: 'open' as const,
       image_url: 'http://localhost:8000/api/image?url=cats-and-dogs',
+      origin_image_url: 'https://upload.wikimedia.org/cats-and-dogs.jpg',
       source_url: 'https://commons.wikimedia.org/wiki/File:CatsAndDogs.jpg',
       publisher: 'Wikimedia Commons',
       title: 'Cats and dogs',
@@ -158,6 +161,7 @@ describe('live candidate messages', () => {
       title: catsCandidate.title,
       lane: catsCandidate.lane,
       imageUrl: catsCandidate.image_url,
+      originImageUrl: catsCandidate.origin_image_url,
       sourceUrl: catsCandidate.source_url,
     }
     useSessionStore.getState().togglePin(pinnedCat)

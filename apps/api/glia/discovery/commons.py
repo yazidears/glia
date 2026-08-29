@@ -92,7 +92,10 @@ class CommonsLane:
                     "formatversion": "1",
                     "generator": "search",
                     "gsrnamespace": FILE_NAMESPACE,
-                    "gsrsearch": query,
+                    # Commons full-text search includes PDFs, DjVu scans and SVG font sheets.
+                    # Restricting this lane to bitmap files prevents those document derivatives
+                    # from filling the page before the query ladder can broaden.
+                    "gsrsearch": f"{query} filetype:bitmap",
                     "gsrlimit": self._page_size,
                     "prop": "imageinfo",
                     "iiprop": "url|size|extmetadata",

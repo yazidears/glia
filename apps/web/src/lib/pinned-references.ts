@@ -29,6 +29,7 @@ export function candidateToPinnedRef(candidate: Candidate): PinnedRef {
     title: candidate.title ?? candidate.publisher ?? 'Visual reference',
     lane: candidate.lane,
     imageUrl: candidate.image_url,
+    originImageUrl: candidate.origin_image_url,
     sourceUrl: candidate.source_url,
   }
 }
@@ -39,6 +40,7 @@ export function demoStickerToPinnedRef(sticker: DemoSticker): PinnedRef {
     title: sticker.title,
     lane: sticker.lane,
     imageUrl: null,
+    originImageUrl: null,
     sourceUrl: null,
   }
 }

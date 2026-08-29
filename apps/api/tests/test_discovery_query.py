@@ -82,9 +82,9 @@ def test_ladder_turns_spanish_military_plane_into_a_photographic_query() -> None
 
 def test_preview_maps_minimalist_outlets_to_findable_english_concepts() -> None:
     expected = (
-        "minimalist electrical outlet",
-        "modern wall socket",
-        "electrical outlet product design",
+        "electrical outlets",
+        "wall sockets",
+        "power sockets",
     )
     assert build_preview_queries(intent("enchufes minimalistas")) == expected
     assert build_preview_queries(intent("endolls minimalistes")) == expected
@@ -93,9 +93,9 @@ def test_preview_maps_minimalist_outlets_to_findable_english_concepts() -> None:
 
 def test_preview_can_take_minimalist_direction_from_structured_style() -> None:
     assert build_preview_queries(intent("enchufes", styles=["minimalistas"])) == (
-        "minimalist electrical outlet",
-        "modern wall socket",
-        "electrical outlet product design",
+        "electrical outlets",
+        "wall sockets",
+        "power sockets",
     )
 
 

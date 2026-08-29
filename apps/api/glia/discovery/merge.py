@@ -11,9 +11,7 @@ _PUNCTUATION = re.compile(r"[^a-z0-9]+")
 _TRACKING_PREFIXES = ("utm_",)
 _NON_PHOTO_FILE = re.compile(r"\.(?:djvu?|eps|pdf|ps|svg)(?:[./_-]|$)", re.IGNORECASE)
 _LOW_SIGNAL_TITLE_PATTERNS = (
-    re.compile(
-        r"\b(?:alphabet chart|character set|font specimen|glyph sheet|typeface|typography)\b"
-    ),
+    re.compile(r"\b(?:alphabet chart|character set|font specimen|glyph sheet|typeface specimen)\b"),
     re.compile(
         r"\b(?:clip ?art|icon set|logo sheet|pictogram|vector graphic|vector illustration)\b"
     ),
@@ -148,14 +146,23 @@ def _keys(candidate: Candidate) -> list[str]:
 
 
 def proxied(candidates: Iterable[Candidate], *, proxy_base: str) -> list[Candidate]:
-    """Proxy allowlisted open-corpus images; keep Cala-cited images at their origin."""
+    """Keep cited display URLs direct; proxy open images and retain every origin file.
+
+    Cala-cited images may live on arbitrary public publishers outside the image-proxy
+    allowlist, so their browser URL stays direct. Open-corpus images use our guarded proxy.
+    In both cases `origin_image_url` records the original file separately, so generation
+    never mistakes the human-facing `source_url` page for an image.
+    """
     base = proxy_base.rstrip("/")
     return [
         (
-            candidate
+            candidate.model_copy(update={"origin_image_url": candidate.image_url})
             if candidate.lane == "cited"
             else candidate.model_copy(
-                update={"image_url": f"{base}/api/image?url={quote(candidate.image_url, safe='')}"}
+                update={
+                    "image_url": f"{base}/api/image?url={quote(candidate.image_url, safe='')}",
+                    "origin_image_url": candidate.image_url,
+                }
             )
         )
         for candidate in candidates

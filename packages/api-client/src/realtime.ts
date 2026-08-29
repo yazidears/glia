@@ -19,6 +19,7 @@ export interface Candidate {
   id: string
   lane: CandidateLane
   image_url: string
+  origin_image_url: string | null
   source_url: string
   publisher: string | null
   title: string | null
@@ -198,6 +199,8 @@ function parseCandidates(value: unknown): Candidate[] | null {
       id: candidate.id as string,
       lane: candidate.lane as CandidateLane,
       image_url: candidate.image_url as string,
+      origin_image_url:
+        typeof candidate.origin_image_url === 'string' ? candidate.origin_image_url : null,
       source_url: candidate.source_url as string,
       publisher: typeof candidate.publisher === 'string' ? candidate.publisher : null,
       title: typeof candidate.title === 'string' ? candidate.title : null,

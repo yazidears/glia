@@ -13,17 +13,12 @@ import { cn } from '@/lib/utils'
 import { type PinnedRef, useSessionStore } from '@/stores/session'
 
 /**
- * The placeholder reference board: six hand-drawn stickers that reveal as the transcript grows,
- * each pinnable, each badged `demo` because none of them came from anywhere.
+ * The live reference board. Real discovery candidates take priority; the six hand-drawn stickers
+ * remain only as an explicitly badged fixture fallback.
  *
- * Moved out of `workpane.tsx` intact rather than deleted. The workpane now leads with what Cala
- * actually cited, and this stands in for the image lane that does not exist yet — Wikimedia and
- * Openverse (Lane B) plus images extracted from the pages Cala cites (Lane A) replace it. The
- * `demo` badge is load-bearing until then: nothing here is sourced, and the UI must not imply
- * that it is.
- *
- * Pinning is no longer local state. A pin is a conditioning input for Generate, so it belongs to
- * the session rather than to this component — the rail and the backend both read it from there.
+ * Pinning belongs to the session because a pin is a Generate conditioning input. The conversion
+ * helper preserves both the display URL and the origin URL needed by the backend, while fixture
+ * stickers honestly carry neither.
  */
 
 interface IdeaBoardProps {

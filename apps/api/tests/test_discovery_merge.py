@@ -106,6 +106,19 @@ def test_real_product_photos_and_illustrations_remain_eligible() -> None:
     assert all(is_servable(item, min_edge=200, allowlist=ALLOWLIST) for item in useful_candidates)
 
 
+def test_cited_lane_keeps_its_existing_renderability_contract() -> None:
+    cited = candidate(
+        "cited",
+        image_url="https://publisher.example.com/report-cover.jpg",
+        source_url="https://publisher.example.com/report.pdf",
+        title="Scanned document",
+        width=None,
+        height=None,
+    ).model_copy(update={"lane": "cited"})
+
+    assert is_servable(cited, min_edge=200, allowlist=ALLOWLIST)
+
+
 def test_a_candidate_that_is_not_http_or_https_is_dropped() -> None:
     assert not is_servable(
         candidate("a", image_url="ftp://upload.wikimedia.org/a.jpg"),
@@ -178,3 +191,17 @@ def test_the_proxy_rewrite_keeps_the_origin_as_source_url() -> None:
         "https://api.glia.test/api/image?url=https%3A%2F%2Fupload.wikimedia.org%2Fa%20b.jpg%3Fx%3D1"
     )
     assert rewritten.source_url == original.source_url
+
+
+def test_the_proxy_rewrite_carries_the_origin_image_url() -> None:
+    """Without this the origin file is simply lost, and a pin cannot condition anything.
+
+    `source_url` is not a substitute: it is the landing page, and generation needs the file.
+    """
+    original = candidate("a", image_url="https://upload.wikimedia.org/a.jpg")
+
+    rewritten = proxied([original], proxy_base="https://api.glia.test")[0]
+
+    assert rewritten.origin_image_url == "https://upload.wikimedia.org/a.jpg"
+    assert rewritten.origin_image_url != rewritten.source_url
+    assert "/api/image" not in (rewritten.origin_image_url or "")

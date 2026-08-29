@@ -122,9 +122,14 @@ export interface paths {
          *
          *     Two properties are load-bearing and everything else here serves them.
          *
-         *     The pins are a real input. Every pin's title reaches the synthesis, and the pins fal can
-         *     actually fetch — public https only — additionally go out as `image_urls`. When none can be
-         *     fetched, `reference_count` is 0 and nothing in the reply claims otherwise.
+         *     The pins are a real input. Every pin's title reaches the synthesis, and every pin carrying
+         *     an origin image URL is additionally fetched here and re-hosted on fal's storage, so that
+         *     what goes out as `image_urls` is always a URL fal can read. Our own `/api/image` proxy is
+         *     never sent: fal cannot reach localhost, and the pin's display URL is not its origin.
+         *
+         *     A pin that cannot be fetched or uploaded is dropped by id rather than fatal. The generation
+         *     runs on the pins that worked, `reference_count` reports what actually conditioned the image,
+         *     and `unavailable_references` names the ones that did not.
          *
          *     The prompt is a deliverable. It is returned verbatim on every outcome that reached fal,
          *     including the timeout, because it is the answer to "here is what we understood you to
@@ -266,6 +271,8 @@ export interface components {
             model: string;
             /** Reference Count */
             reference_count: number;
+            /** Unavailable References */
+            unavailable_references?: string[];
             /** Correlation Id */
             correlation_id: string;
         };
@@ -320,6 +327,8 @@ export interface components {
             lane: string;
             /** Image Url */
             image_url?: string | null;
+            /** Origin Image Url */
+            origin_image_url?: string | null;
             /** Source Url */
             source_url?: string | null;
         };

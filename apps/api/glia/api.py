@@ -36,9 +36,10 @@ from glia.generation.fal import (
     FalReferenceUnavailable,
     FalTimedOut,
     FalUpstreamError,
-    reference_urls,
 )
+from glia.generation.fal_storage import FalStorage
 from glia.generation.fixture import FIXTURE_IMAGE_URL, fixture_model
+from glia.generation.references import ReferenceResolver, reference_pins
 from glia.generation.synthesis import (
     PromptSynthesiser,
     SynthesisUnavailable,
@@ -101,6 +102,19 @@ def get_cala_client() -> CalaClient:
 def get_discovery_service() -> DiscoveryService:
     """One process-wide service so its query cache is shared across sessions."""
     return build_discovery_service(get_settings(), cala_client=get_cala_client())
+
+
+@lru_cache(maxsize=1)
+def get_reference_resolver() -> ReferenceResolver:
+    """The pins-to-fal hop. Shares the one guarded fetcher with the image proxy, deliberately:
+    a second fetcher would be a second place for the allowlist to drift."""
+    settings = get_settings()
+    return ReferenceResolver(
+        fetcher=get_image_fetcher(),
+        storage=FalStorage(settings),
+        max_references=settings.fal_max_reference_images,
+        timeout=settings.fal_reference_timeout_seconds,
+    )
 
 
 @lru_cache(maxsize=1)
@@ -381,14 +395,20 @@ async def generate(
     fal: Annotated[FalClient, Depends(get_fal_client)],
     synthesiser: Annotated[PromptSynthesiser, Depends(get_prompt_synthesiser)],
     distiller: Annotated[IntentDistiller, Depends(get_generate_distiller)],
+    resolver: Annotated[ReferenceResolver, Depends(get_reference_resolver)],
 ) -> GenerateResponse | JSONResponse:
     """Transcript + intent + pins → one prompt → one image.
 
     Two properties are load-bearing and everything else here serves them.
 
-    The pins are a real input. Every pin's title reaches the synthesis, and the pins fal can
-    actually fetch — public https only — additionally go out as `image_urls`. When none can be
-    fetched, `reference_count` is 0 and nothing in the reply claims otherwise.
+    The pins are a real input. Every pin's title reaches the synthesis, and every pin carrying
+    an origin image URL is additionally fetched here and re-hosted on fal's storage, so that
+    what goes out as `image_urls` is always a URL fal can read. Our own `/api/image` proxy is
+    never sent: fal cannot reach localhost, and the pin's display URL is not its origin.
+
+    A pin that cannot be fetched or uploaded is dropped by id rather than fatal. The generation
+    runs on the pins that worked, `reference_count` reports what actually conditioned the image,
+    and `unavailable_references` names the ones that did not.
 
     The prompt is a deliverable. It is returned verbatim on every outcome that reached fal,
     including the timeout, because it is the answer to "here is what we understood you to
@@ -434,27 +454,33 @@ async def generate(
                 correlation_id=correlation_id,
             )
 
-        references = reference_urls(payload.pins, settings.fal_max_reference_images)
-        model = fal.model_for(references)
+        if not live:
+            # No socket opened and no upload either: fixture mode touches no network at all, so
+            # the count is what *would* have conditioned the image rather than what did. The
+            # prompt is the real one; the image is visibly a stand-in.
+            eligible = reference_pins(payload.pins, settings.fal_max_reference_images)
+            return GenerateResponse(
+                status="ok",
+                session_id=payload.session_id,
+                image_url=FIXTURE_IMAGE_URL,
+                prompt=prompt,
+                model=fixture_model(fal.model_for(len(eligible))),
+                reference_count=len(eligible),
+                correlation_id=correlation_id,
+            )
+
+        resolved = await resolver.resolve(payload.pins)
+        references = resolved.urls
+        unavailable = resolved.unavailable
+        model = fal.model_for(len(references))
         logger.info(
             "generate.prompt_ready",
             session_id=payload.session_id,
             model=model,
             pins=len(payload.pins),
             reference_count=len(references),
+            unavailable_references=len(unavailable),
         )
-
-        if not live:
-            # No socket opened. The prompt is the real one; the image is visibly a stand-in.
-            return GenerateResponse(
-                status="ok",
-                session_id=payload.session_id,
-                image_url=FIXTURE_IMAGE_URL,
-                prompt=prompt,
-                model=fixture_model(model),
-                reference_count=len(references),
-                correlation_id=correlation_id,
-            )
 
         try:
             image_url = await fal.generate(model=model, prompt=prompt, references=references)
@@ -469,12 +495,16 @@ async def generate(
                 prompt=prompt,
                 model=model,
                 reference_count=len(references),
+                unavailable_references=unavailable,
                 correlation_id=correlation_id,
             )
         except FalReferenceUnavailable:
-            # Not a transport failure: fal reached the URL and could not have it. Wikimedia's
-            # `upload.wikimedia.org`, measured on 29 Aug 2026, answers a blank User-Agent with
-            # 403 — which is what fal's fetcher sends — so this is a live case, not a theory.
+            # Not a transport failure: fal reached the URL and could not have it. Every
+            # reference we send is now on fal's own storage, so this should not happen — and if
+            # it does, the reply does not say which one failed (the vendor body stays inside the
+            # client). So the pins we actually sent are reported alongside the ones we already
+            # dropped, and no pin is guessed at. Scoped to what was *sent*: naming a pin that
+            # uploaded fine would invite the user to unpin a working reference.
             logger.warning(
                 "generate.reference_unavailable",
                 session_id=payload.session_id,
@@ -487,6 +517,7 @@ async def generate(
                 prompt=prompt,
                 model=model,
                 reference_count=len(references),
+                unavailable_references=unavailable + resolved.delivered,
                 correlation_id=correlation_id,
             )
         except FalNotConfigured:
@@ -514,6 +545,7 @@ async def generate(
             prompt=prompt,
             model=model,
             reference_count=len(references),
+            unavailable_references=unavailable,
             correlation_id=correlation_id,
         )
     finally:

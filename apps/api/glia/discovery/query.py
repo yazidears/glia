@@ -74,13 +74,14 @@ _PALETTE_ALIASES = {
 # search, so the board keeps its current references instead of flashing an
 # unrelated result for a literal speech fragment.
 _MINIMAL_OUTLET_QUERIES = (
-    "minimalist electrical outlet",
-    "modern wall socket",
-    "electrical outlet product design",
+    "electrical outlets",
+    "wall sockets",
+    "power sockets",
 )
 _OUTLET_QUERIES = (
-    "electrical outlet",
-    "wall socket",
+    "electrical outlets",
+    "wall sockets",
+    "power sockets",
 )
 _PREVIEW_QUERY_LADDERS: dict[tuple[str, ...], tuple[str, ...]] = {
     ("enchufe",): _OUTLET_QUERIES,

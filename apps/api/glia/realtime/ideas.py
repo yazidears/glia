@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from glia.config import Settings
 from glia.contracts import IdeaSource, VisualIntent
-from glia.discovery.query import build_queries
+from glia.discovery.query import build_preview_queries, build_queries
 
 
 class IdeasUnavailable(RuntimeError):
@@ -159,7 +159,15 @@ def build_idea_synthesizer(settings: Settings) -> IdeaSynthesizer:
 def merge_idea_queries(intent: VisualIntent, result: IdeaResult) -> tuple[str, ...]:
     # The semantic planner translates conversational design intent into concrete English corpus
     # terms. The deterministic ladder remains the fast fallback when no planned query is present.
-    candidates = [*result.search_queries, *build_queries(intent)]
+    # Keep the model's sharp visual direction, but reserve two rungs for measured concrete
+    # corpus terms. Very specific design phrases often return one useful asset and many papers;
+    # the concrete rungs fill the board with the actual object instead of broadening to an
+    # ambiguous adjective such as "minimalistas".
+    candidates = [
+        *result.search_queries[:2],
+        *build_preview_queries(intent),
+        *build_queries(intent),
+    ]
     return tuple(_clean(candidates, limit=4, max_length=80))
 
 

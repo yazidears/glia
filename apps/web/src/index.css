@@ -1264,6 +1264,16 @@
   white-space: nowrap;
 }
 
+/* A note, not an error: the image above is real, it simply had one fewer pin to work from. */
+.generated-dropped {
+  margin: 0;
+  color: #c08a52;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.4;
+}
+
 @keyframes workspace-enter {
   from {
     opacity: 0;

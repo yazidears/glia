@@ -28,17 +28,23 @@ export type SessionPhase = 'hero' | 'session'
 /**
  * One pinned reference, in the shape the whole app agrees on.
  *
- * `imageUrl` is nullable and load-bearing. The board's stickers are inline SVG with no public
- * URL, so they pin as `null` — fal fetches references over the internet and cannot reach them.
- * Lane B's tiles will carry a real https URL through this same field, which is why there is one
- * pin path and not two: the difference between a pin that conditions the image and a pin that
- * only steers the prompt is a value, not a type.
+ * Two image URLs, because display and conditioning are two different jobs. `imageUrl` is what
+ * this app renders — for a grid tile that is the backend's `/api/image` proxy, which is exactly
+ * why it is useless for generation: fal fetches over the internet and cannot reach localhost.
+ * `originImageUrl` is the file on the origin host, and it is the only one the server turns into
+ * a reference image.
+ *
+ * Both are nullable and both are load-bearing. The board's stickers are inline SVG with no URL
+ * at all, so they pin as null twice over — which is why there is one pin path and not two: the
+ * difference between a pin that conditions the image and a pin that only steers the prompt is a
+ * value, not a type.
  */
 export interface PinnedRef {
   id: string
   title: string
   lane: string
   imageUrl: string | null
+  originImageUrl: string | null
   sourceUrl: string | null
 }
 
@@ -49,6 +55,12 @@ export interface GeneratedImage {
   prompt: string
   model: string
   referenceCount: number
+  /**
+   * Ids of pins that did not condition the image, because the server could not fetch or
+   * re-host them. A dropped pin never fails the generation, so this list is the only way the
+   * user finds out — and it is shown rather than swallowed for exactly that reason.
+   */
+  unavailableReferences: string[]
 }
 
 export interface GenerationFailure {

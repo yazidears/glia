@@ -34,8 +34,22 @@ describe('spoken controls', () => {
 
   test('select all adds pins idempotently in visible order', () => {
     const refs = [
-      { id: 'one', title: 'One', lane: 'open', imageUrl: null, sourceUrl: null },
-      { id: 'two', title: 'Two', lane: 'open', imageUrl: null, sourceUrl: null },
+      {
+        id: 'one',
+        title: 'One',
+        lane: 'open',
+        imageUrl: null,
+        originImageUrl: null,
+        sourceUrl: null,
+      },
+      {
+        id: 'two',
+        title: 'Two',
+        lane: 'open',
+        imageUrl: null,
+        originImageUrl: null,
+        sourceUrl: null,
+      },
     ]
     useSessionStore.getState().pinMany(refs)
     useSessionStore.getState().pinMany(refs)
@@ -47,6 +61,7 @@ describe('spoken controls', () => {
       id: `candidate-${index + 1}`,
       lane: 'open' as const,
       image_url: `https://example.com/${index + 1}.jpg`,
+      origin_image_url: `https://images.example.com/${index + 1}.jpg`,
       source_url: `https://example.com/source/${index + 1}`,
       publisher: 'Fixture',
       title: `Candidate ${index + 1}`,

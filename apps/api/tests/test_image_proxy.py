@@ -116,6 +116,40 @@ async def test_the_byte_cap_is_enforced_while_streaming() -> None:
 
 
 @pytest.mark.asyncio
+async def test_read_returns_the_whole_image_under_the_same_guards() -> None:
+    image = await fetcher(image_handler).read(IMAGE_URL)
+
+    assert image.data == b"\xff\xd8pixels"
+    assert image.content_type == "image/jpeg"
+
+
+@pytest.mark.asyncio
+async def test_read_refuses_a_url_outside_the_allowlist() -> None:
+    # `read` is the reference-upload path. It gets the identical guards, not a relaxed set.
+    with pytest.raises(FetchRejected):
+        await fetcher(image_handler).read("https://attacker.test/a.jpg")
+
+
+@pytest.mark.asyncio
+async def test_read_refuses_a_body_that_hits_the_cap() -> None:
+    """A truncated image is not a reference worth conditioning on.
+
+    The streaming path stops at the cap and hands the browser what it got, which is fine for a
+    proxy. Uploading a half-read file to fal is not, so `read` refuses instead.
+    """
+
+    async def lying(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=b"x" * 4_000,
+            headers={"content-type": "image/png", "content-length": "8"},
+        )
+
+    with pytest.raises(FetchFailed):
+        await fetcher(lying, max_bytes=1_024).read(IMAGE_URL)
+
+
+@pytest.mark.asyncio
 async def test_the_fetcher_reports_an_upstream_error() -> None:
     async def unavailable(request: httpx.Request) -> httpx.Response:
         return httpx.Response(503)
