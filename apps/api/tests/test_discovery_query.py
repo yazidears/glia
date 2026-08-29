@@ -104,6 +104,14 @@ def test_preview_keeps_known_demo_concepts_fast() -> None:
     assert build_preview_queries(intent("manzanas verdes")) == ("green apples", "apples")
 
 
+def test_preview_strips_common_speech_scaffolding_before_matching() -> None:
+    assert build_preview_queries(intent("Vull cotxes")) == ("cars",)
+    assert build_preview_queries(intent("Quiero una imagen de manzanas verdes")) == (
+        "green apples",
+        "apples",
+    )
+
+
 def test_preview_does_not_search_unknown_or_project_compounds_literally() -> None:
     assert build_preview_queries(intent("club ticketing ui", styles=["minimalist"])) == ()
     assert build_preview_queries(intent("fuera para comprar tickets clubs")) == ()

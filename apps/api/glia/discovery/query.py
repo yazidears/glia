@@ -22,15 +22,22 @@ _NOISE = frozenset(
         "image",
         "images",
         "headquarters",
+        "hacer",
         "kind",
+        "imatge",
+        "imagen",
         "photo",
         "photos",
         "picture",
         "pictures",
+        "quiero",
         "something",
         "sort",
         "thing",
         "things",
+        "una",
+        "vull",
+        "want",
     }
 )
 
