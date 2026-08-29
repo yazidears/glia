@@ -187,6 +187,28 @@ async def test_a_lane_stops_climbing_once_a_rung_returned_enough() -> None:
 
 
 @pytest.mark.asyncio
+async def test_broadening_preserves_the_sharp_results() -> None:
+    sharp = candidate("sharp")
+    broad = [candidate(f"broad-{index}") for index in range(4)]
+    lane = StubLane(
+        "commons",
+        {
+            "minimalist electrical outlet": [sharp],
+            "electrical outlets": broad,
+        },
+    )
+    collector = Collector()
+
+    await service(lane).discover(
+        queries=("minimalist electrical outlet", "electrical outlets"),
+        revision=1,
+        emit=collector,
+    )
+
+    assert collector.ids == ["sharp", *(item.id for item in broad)]
+
+
+@pytest.mark.asyncio
 async def test_the_same_subject_twice_is_served_from_cache() -> None:
     lane = StubLane("commons", {"observatory": [candidate(f"c{index}") for index in range(4)]})
     discovery = service(lane)

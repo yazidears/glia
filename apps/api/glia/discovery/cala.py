@@ -38,6 +38,7 @@ from glia.config import Settings
 from glia.contracts import (
     CalaEntityHit,
     CalaOrigin,
+    CalaSearchEntity,
     CalaSearchResult,
     Candidate,
     DiscoverResponse,
@@ -174,6 +175,22 @@ _SUBJECT_STOPWORDS: Final[frozenset[str]] = frozenset(
 )
 
 _MAX_SUBJECT_WORDS: Final = 6
+
+# Entity types that can act as a concrete visual reference. Financial metrics, laws and other
+# valid Cala entities stay in the evidence response, but they do not belong in the quiet
+# inspiration rail beneath the canvas.
+_VISUAL_ENTITY_TYPES: Final[frozenset[str]] = frozenset(
+    {
+        "company",
+        "facility",
+        "gpe",
+        "location",
+        "organization",
+        "person",
+        "product",
+        "workofart",
+    }
+)
 
 
 class CalaNotConfigured(Exception):
@@ -319,6 +336,48 @@ def join_evidence(result: CalaSearchResult) -> list[EvidenceItem]:
         for item in result.context
     ]
     return sorted(items, key=lambda item: not item.carried_answer)
+
+
+def visual_entity_query(direction: str) -> str:
+    """Ask Cala for sourced real-world anchors, not anonymous image-search keywords.
+
+    The same ``knowledge/search`` response still feeds Lane A through its citations. Its
+    ``entities`` additionally feed the small related-reference rail, so this does not add a
+    second Cala call or spend a second credit.
+    """
+    cleaned = " ".join(direction.split())[:80]
+    return (
+        "Which companies, products, works of art, facilities, places or people are strongly "
+        f"associated with this visual direction: {cleaned}? Explain the visual connection and "
+        "support the suggestions with authoritative sources."
+    )
+
+
+def visual_entity_for(
+    evidence: EvidenceItem,
+    origin: CalaOrigin,
+    entities: list[CalaSearchEntity],
+) -> CalaSearchEntity | None:
+    """Match a cited page to a useful entity without inventing a visual relationship."""
+    eligible = [
+        entity
+        for entity in entities
+        if entity.entity_type is not None
+        and entity.entity_type.replace("_", "").casefold() in _VISUAL_ENTITY_TYPES
+    ]
+    if not eligible:
+        return None
+
+    document_name = origin.document.name if origin.document is not None else None
+    haystack = " ".join(part for part in (evidence.content, document_name) if part).casefold()
+    for entity in eligible:
+        aliases = [entity.name, *entity.mentions]
+        if any(alias.strip() and alias.casefold() in haystack for alias in aliases):
+            return entity
+
+    # A single returned visual entity is unambiguous even when the evidence quote uses a
+    # pronoun. Multiple unmatched entities remain absent rather than being paired by position.
+    return eligible[0] if len(eligible) == 1 else None
 
 
 class CalaClient:
@@ -532,14 +591,16 @@ class CalaCitedLane:
             return []
         self._last_attempt_at = now
 
-        result, _cached = await self._client.search(query)
-        jobs: list[tuple[EvidenceItem, CalaOrigin]] = []
+        result, _cached = await self._client.search(visual_entity_query(query))
+        jobs: list[tuple[EvidenceItem, CalaOrigin, CalaSearchEntity | None]] = []
         for evidence in join_evidence(result):
             for origin in evidence.origins:
                 document = origin.document
                 if document is None or not document.url:
                     continue
-                jobs.append((evidence, origin))
+                jobs.append(
+                    (evidence, origin, visual_entity_for(evidence, origin, result.entities))
+                )
                 if len(jobs) >= self._max_documents:
                     break
             if len(jobs) >= self._max_documents:
@@ -547,8 +608,8 @@ class CalaCitedLane:
 
         candidates = await asyncio.gather(
             *(
-                self._candidate(evidence, origin, index)
-                for index, (evidence, origin) in enumerate(jobs)
+                self._candidate(evidence, origin, entity, index)
+                for index, (evidence, origin, entity) in enumerate(jobs)
             )
         )
         found = [candidate for candidate in candidates if candidate is not None]
@@ -559,6 +620,7 @@ class CalaCitedLane:
         self,
         evidence: EvidenceItem,
         origin: CalaOrigin,
+        entity: CalaSearchEntity | None,
         index: int,
     ) -> Candidate | None:
         document = origin.document
@@ -582,6 +644,8 @@ class CalaCitedLane:
             publisher=publisher,
             title=document.name,
             evidence=evidence.content,
+            entity_name=entity.name if entity is not None else None,
+            entity_type=entity.entity_type if entity is not None else None,
             width=None,
             height=None,
             score=round(max(0.5, 1.0 - index * 0.06), 4),

@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import type { GeneratedImage as GeneratedImageValue } from '@/stores/session'
+import { useSessionStore } from '@/stores/session'
 
 /**
  * The result of Generate.
@@ -21,10 +23,41 @@ interface GeneratedImageProps {
 }
 
 export function GeneratedImage({ value }: GeneratedImageProps) {
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
+  const markGenerationImageReady = useSessionStore((state) => state.markGenerationImageReady)
+  const previewFailed = failedImageUrl === value.imageUrl
+
+  const finishPreview = (): void => {
+    markGenerationImageReady()
+  }
+
+  const failPreview = (): void => {
+    setFailedImageUrl(value.imageUrl)
+    // Do not strand the convergence layer over a result whose CDN preview failed. The honest
+    // inline error underneath replaces it and leaves the exact fal URL available to retry.
+    markGenerationImageReady()
+  }
+
   return (
     <figure className="discovery-item generated-figure">
-      {/* The prompt is the alt text, because the prompt is literally what is depicted. */}
-      <img alt={value.prompt} className="generated-image" src={value.imageUrl} />
+      {previewFailed ? (
+        <div className="generated-preview-error" role="status">
+          <p>The image was generated, but its preview could not be loaded.</p>
+          <a href={value.imageUrl} rel="noreferrer" target="_blank">
+            Open the fal result
+          </a>
+        </div>
+      ) : (
+        /* The prompt is the alt text, because the prompt is literally what is depicted. */
+        <img
+          alt={value.prompt}
+          className="generated-image"
+          decoding="async"
+          onError={failPreview}
+          onLoad={finishPreview}
+          src={value.imageUrl}
+        />
+      )}
       <figcaption className="generated-caption">
         <p className="generated-prompt">{value.prompt}</p>
         <p className="generated-meta">

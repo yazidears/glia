@@ -1114,6 +1114,262 @@
   object-fit: contain;
 }
 
+.generated-preview-error {
+  display: grid;
+  width: min(100%, 640px);
+  min-height: 220px;
+  padding: 32px;
+  place-content: center;
+  color: #686868;
+  background: #efefec;
+  border: 1px solid rgb(17 17 17 / 8%);
+  border-radius: 14px;
+  text-align: center;
+}
+
+.generated-preview-error p {
+  margin: 0 0 10px;
+}
+
+.generated-preview-error a {
+  color: #111111;
+  font-weight: 600;
+  text-underline-offset: 3px;
+}
+
+/*
+ * Generate is the one rare, consequential transition in Glia. Source cards move as compositor
+ * layers; the single veil owns the expensive blur so nine independent filters never fight fal's
+ * image decode for the main thread. Static positioning is sampled from the live board and only
+ * transform/opacity animate from there.
+ */
+.generation-transition {
+  position: fixed;
+  inset: 0;
+  z-index: 58;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.generation-veil {
+  position: fixed;
+  top: var(--generation-surface-top);
+  left: var(--generation-surface-left);
+  width: var(--generation-surface-width);
+  height: var(--generation-surface-height);
+  background: rgb(247 247 245 / 38%);
+  backdrop-filter: blur(11px) saturate(0.82);
+  opacity: 0;
+  animation: generation-veil-in 260ms var(--ease-out) forwards;
+  transition: opacity 260ms var(--ease-out);
+}
+
+.generation-flight {
+  position: fixed;
+  z-index: 2;
+  padding: 5px;
+  overflow: hidden;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 6%),
+    0 18px 54px rgb(17 17 17 / 18%);
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+
+.generation-flight img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.generation-transition[data-stage="gathering"] .generation-flight {
+  animation: generation-flight-gather 720ms var(--ease-in-out) var(--generation-delay) both;
+}
+
+.generation-transition[data-stage="revealing"] .generation-flight {
+  animation: generation-flight-release 420ms var(--ease-out) both;
+}
+
+.generation-transition[data-stage="returning"] .generation-flight {
+  animation: generation-flight-return 260ms var(--ease-out) both;
+}
+
+.generation-energy {
+  position: fixed;
+  top: var(--generation-center-y);
+  left: var(--generation-center-x);
+  z-index: 1;
+  width: min(28vw, 280px);
+  aspect-ratio: 1;
+  background:
+    radial-gradient(circle at 34% 35%, rgb(255 255 255 / 96%) 0 8%, transparent 37%),
+    radial-gradient(circle at 64% 38%, rgb(61 95 217 / 38%) 0, transparent 44%),
+    radial-gradient(circle at 47% 68%, rgb(221 118 84 / 30%) 0, transparent 46%),
+    radial-gradient(circle, rgb(17 17 17 / 12%) 0, transparent 67%);
+  border-radius: 50%;
+  opacity: 0;
+  transform: translate3d(-50%, -50%, 0) scale(0.54) rotate(-8deg);
+  will-change: transform, opacity;
+}
+
+.generation-transition[data-stage="gathering"] .generation-energy {
+  animation:
+    generation-energy-enter 620ms var(--ease-out) 380ms both,
+    generation-energy-breathe 2.4s ease-in-out 1s infinite;
+}
+
+.generation-transition[data-stage="revealing"] .generation-energy {
+  animation: generation-energy-release 500ms var(--ease-out) both;
+}
+
+.generation-transition[data-stage="returning"] .generation-energy {
+  animation: generation-energy-return 220ms var(--ease-out) both;
+}
+
+.generation-status-copy {
+  position: fixed;
+  top: calc(var(--generation-center-y) + min(17vw, 170px));
+  left: var(--generation-center-x);
+  z-index: 3;
+  display: flex;
+  min-width: 210px;
+  flex-direction: column;
+  gap: 5px;
+  align-items: center;
+  color: #777777;
+  opacity: 0;
+  text-align: center;
+  transform: translate3d(-50%, 8px, 0);
+  animation: generation-copy-in 260ms var(--ease-out) 160ms forwards;
+  transition-property: opacity, transform;
+  transition-duration: 220ms;
+  transition-timing-function: var(--ease-out);
+}
+
+.generation-status-kicker {
+  color: #8a8a8a;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.generation-status-copy strong {
+  color: #111111;
+  font-size: 17px;
+  font-weight: 620;
+  letter-spacing: -0.035em;
+}
+
+.generation-status-copy > span:last-child {
+  font-size: 11px;
+}
+
+.generation-transition[data-stage="revealing"] .generation-veil,
+.generation-transition[data-stage="returning"] .generation-veil,
+.generation-transition[data-stage="revealing"] .generation-status-copy,
+.generation-transition[data-stage="returning"] .generation-status-copy {
+  opacity: 0;
+  transform: translate3d(-50%, -4px, 0);
+}
+
+@keyframes generation-veil-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes generation-flight-gather {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1) rotate(var(--generation-rotation));
+  }
+  68% {
+    opacity: 0.82;
+    transform: translate3d(var(--generation-dx), var(--generation-dy), 0) scale(0.36) rotate(0deg);
+  }
+  100% {
+    opacity: 0.09;
+    transform: translate3d(var(--generation-dx), var(--generation-dy), 0) scale(0.14) rotate(0deg);
+  }
+}
+
+@keyframes generation-flight-release {
+  from {
+    opacity: 0.1;
+    transform: translate3d(var(--generation-dx), var(--generation-dy), 0) scale(0.14);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(var(--generation-dx), var(--generation-dy), 0) scale(1.55);
+  }
+}
+
+@keyframes generation-flight-return {
+  from {
+    opacity: 0.1;
+    transform: translate3d(var(--generation-dx), var(--generation-dy), 0) scale(0.14);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) scale(1) rotate(var(--generation-rotation));
+  }
+}
+
+@keyframes generation-energy-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(-50%, -50%, 0) scale(0.54) rotate(-8deg);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(-50%, -50%, 0) scale(1) rotate(0deg);
+  }
+}
+
+@keyframes generation-energy-breathe {
+  0%,
+  100% {
+    transform: translate3d(-50%, -50%, 0) scale(1) rotate(0deg);
+  }
+  50% {
+    transform: translate3d(-50%, -50%, 0) scale(1.06) rotate(4deg);
+  }
+}
+
+@keyframes generation-energy-release {
+  from {
+    opacity: 1;
+    transform: translate3d(-50%, -50%, 0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(-50%, -50%, 0) scale(1.75);
+  }
+}
+
+@keyframes generation-energy-return {
+  from {
+    opacity: 1;
+    transform: translate3d(-50%, -50%, 0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(-50%, -50%, 0) scale(0.72);
+  }
+}
+
+@keyframes generation-copy-in {
+  to {
+    opacity: 1;
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
 .generated-caption {
   display: flex;
   max-width: 62ch;
@@ -1474,6 +1730,14 @@
     max-height: 27dvh;
   }
 
+  .generation-energy {
+    width: min(42vw, 190px);
+  }
+
+  .generation-status-copy {
+    top: calc(var(--generation-center-y) + min(24vw, 118px));
+  }
+
   .intent-hud {
     right: max(12px, env(safe-area-inset-right));
     bottom: calc(50dvh + max(12px, env(safe-area-inset-bottom)));
@@ -1558,6 +1822,26 @@
     animation-iteration-count: 1;
     transition-duration: 1ms;
     transition-delay: 0ms;
+  }
+
+  .generation-flight,
+  .generation-energy,
+  .generation-status-copy,
+  .generation-veil {
+    animation-duration: 180ms;
+    animation-delay: 0ms;
+    animation-iteration-count: 1;
+    transition-duration: 180ms;
+    transition-delay: 0ms;
+  }
+
+  .generation-flight {
+    opacity: 0;
+  }
+
+  .generation-energy {
+    opacity: 0.72;
+    transform: translate3d(-50%, -50%, 0) scale(0.94);
   }
 
   .entry-loader,

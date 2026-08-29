@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     discovery_max_candidates: int = Field(default=30, ge=1, le=100)
     discovery_wave_size: int = Field(default=8, ge=1, le=50)
     discovery_wave_delay_seconds: float = Field(default=0.12, ge=0, le=2)
-    discovery_lane_stagger_seconds: float = Field(default=0.5, ge=0, le=5)
+    discovery_lane_stagger_seconds: float = Field(default=0.05, ge=0, le=5)
     discovery_lane_min_results: int = Field(default=8, ge=1, le=50)
     discovery_lane_max_attempts: int = Field(default=3, ge=1, le=4)
     discovery_cache_size: int = Field(default=64, ge=1, le=1_000)

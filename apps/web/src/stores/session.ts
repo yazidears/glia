@@ -112,9 +112,12 @@ interface SessionState {
   generationStatus: GenerationStatus
   generation: GeneratedImage | null
   generationError: GenerationFailure | null
+  /** True only after the browser has decoded the current fal result (or its preview failed). */
+  generationImageReady: boolean
   startGenerating: () => void
   settleGeneration: (generation: GeneratedImage) => void
   failGeneration: (failure: GenerationFailure) => void
+  markGenerationImageReady: () => void
   setConnection: (connectionState: ConnectionState, connectionError?: string | null) => void
   setSessionId: (sessionId: string) => void
   setTranscriptState: (transcript: string, transcriptSegments: TranscriptSegment[]) => void
@@ -211,6 +214,7 @@ export const useSessionStore = create<SessionState>()((set) => ({
   generationStatus: 'idle',
   generation: null,
   generationError: null,
+  generationImageReady: false,
   togglePin: (ref) =>
     set((state) => ({
       pinned: state.pinned.some((pin) => pin.id === ref.id)
@@ -229,8 +233,14 @@ export const useSessionStore = create<SessionState>()((set) => ({
   // against — and the board stays reachable, which is where the next pin comes from.
   startGenerating: () => set({ generationStatus: 'generating', generationError: null }),
   settleGeneration: (generation) =>
-    set({ generationStatus: 'ready', generation, generationError: null }),
+    set({
+      generationStatus: 'ready',
+      generation,
+      generationError: null,
+      generationImageReady: false,
+    }),
   failGeneration: (generationError) => set({ generationStatus: 'error', generationError }),
+  markGenerationImageReady: () => set({ generationImageReady: true }),
   setConnection: (connectionState, connectionError = null) =>
     set({ connectionState, connectionError }),
   setSessionId: (sessionId) => set({ sessionId }),
@@ -327,5 +337,6 @@ export const useSessionStore = create<SessionState>()((set) => ({
       generationStatus: 'idle',
       generation: null,
       generationError: null,
+      generationImageReady: false,
     }),
 }))

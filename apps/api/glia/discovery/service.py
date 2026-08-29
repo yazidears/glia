@@ -223,8 +223,12 @@ class DiscoveryService:
                     if attempt and elapsed > lane_timeout / 2:
                         break
                     found = await lane.search(query)
-                    if len(found) > len(candidates):
-                        candidates = found
+                    # A broader rung may return more items but be less relevant. Preserve the
+                    # sharp results and only fill the remaining slots with broader candidates.
+                    seen_ids = {candidate.id for candidate in candidates}
+                    candidates.extend(
+                        candidate for candidate in found if candidate.id not in seen_ids
+                    )
                     if len(candidates) >= self._lane_min_results:
                         break
         except (LaneUnavailable, TimeoutError) as error:
