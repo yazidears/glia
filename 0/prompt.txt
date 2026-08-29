@@ -1,0 +1,70 @@
+## B-4 · Revive both image lanes, then render them
+
+Backend + frontend. One agent. Both lanes are currently failing in production logs:
+  discovery.lane_failed error=LaneUnavailable lane=commons
+  discovery.lane_failed error=TimeoutError    lane=openverse
+Nothing else in this ticket matters until they return images. Do step 1 before writing
+any code.
+
+1. DIAGNOSE, DO NOT GUESS. From the repo root, curl both APIs directly and print status
+   codes and bodies:
+
+   - Commons, first with the exact User-Agent currently in .env
+     (`glia/0.1 (+https://github.com/<org>/glia)` — note the literal `<org>` placeholder,
+     never filled in), then with a valid one containing a real repo URL and a contact.
+     Wikimedia enforces a UA policy and rejects malformed agents; commons.py's own
+     docstring says so. If that is the cause, fix IMAGE_FETCH_USER_AGENT in .env and in
+     .env.example, and make the app refuse to start (or log an explicit error) if the UA
+     still contains a `<` placeholder.
+   - Openverse anonymous: time the request. It is timing out at
+     discovery_lane_timeout_seconds=8. Measure the real p50 before choosing a number.
+     OPENVERSE_CLIENT_ID/SECRET are empty, so confirm _access_token() returns None
+     immediately and does not spend any of the lane's budget on a doomed token call.
+
+   Report both status codes and the fix for each before continuing.
+
+2. MAKE LANE FAILURE VISIBLE AND SURVIVABLE.
+   - Raise the per-lane timeout to what step 1 measured, plus headroom.
+   - Ship each lane's results the moment they arrive rather than waiting for both. One
+     slow or dead lane must never delay the other's first wave.
+   - Log one line per lane per query with status, count and elapsed. A silent lane is
+     how this went unnoticed for an hour.
+   - Add a lane health probe to /health so a dead lane is visible without reading logs.
+
+3. THE GRID. packages/api-client has no Candidate mirror and no tile exists, so 30
+   candidates a second currently stream into nothing. Build it:
+   - Mirror Candidate / CandidatesBatch / LedgerUpdated from apps/api/glia/contracts.py
+     into packages/api-client/src/realtime.ts by hand, extend the ServerMessage union and
+     its discriminator. WS messages are not in the OpenAPI schema; pnpm gen:api will not
+     produce them.
+   - Session store: candidates appended (never prepended), deduped by id, cleared when
+     the subject changes.
+   - CandidateTile: RESERVED ASPECT BOX from width/height before the image loads, then
+     fade in — nothing may reflow while a wave lands. CITED/OPEN badge always visible,
+     same slot both lanes. Title and licence as plain text, never HTML. lazy loading,
+     referrerpolicy no-referrer. A tile whose image 404s removes itself.
+   - Use image_url exactly as the backend gives it (already routed through /api/image).
+     Do not reconstruct that URL.
+   - Staggered CSS entry, matching index.css's existing sticker-enter/workspace-enter.
+     main has no `motion` dependency; do not reinstall it.
+
+4. IMAGES BY DEFAULT.
+   - apps/api/glia/api.py:92 — image_discovery is hardcoded False with a stale comment
+     saying the pipeline does not exist. It does. Make it a real check.
+   - apps/web/src/stores/settings.ts — default output becomes 'images', and bump the
+     persisted key version so anyone holding 'text' in localStorage gets the new default.
+   - The grid is the workpane's primary content; the Cala entity/answer/evidence become
+     secondary. The Cala panel failing must never blank the pane.
+
+5. GUARD THE SUBJECT. The transcript "Hola, hola, hola, por qué va tan lento" resolved to
+   the UK company WHY WHY LIMITED and that went to Cala and both lanes. Before any query:
+   reject subjects under 4 characters, reject a multilingual stopword list
+   (why/what/this/hola/vale/tío/yeah/ok/bueno…), reject on low distiller confidence. No
+   subject, no query.
+
+ACCEPTANCE
+Both lanes report healthy in /health. Speaking "a brutalist observatory at dusk" puts
+real images on screen in under 2s, grid by default, zero layout shift. Killing one lane
+still fills the grid from the other. Blocking :8000/v1/discover entirely still fills the
+grid. Saying "hola hola" queries nothing. pnpm lint/typecheck/build, uv run mypy . and
+ruff check . all pass.
