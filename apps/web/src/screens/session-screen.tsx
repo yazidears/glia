@@ -1,3 +1,4 @@
+import type { ConnectionState } from '@glia/api-client'
 import { Mic } from 'lucide-react'
 import {
   AnimatePresence,
@@ -11,6 +12,7 @@ import { Waveform } from '@/components/waveform'
 import { Workpane } from '@/components/workpane'
 import { type AudioLevelHandle, useAudioLevel } from '@/hooks/use-audio-level'
 import { useMicrophone } from '@/hooks/use-microphone'
+import { useRealtimeTranscription } from '@/hooks/use-realtime-transcription'
 import { cn } from '@/lib/utils'
 import { type MicState, useSessionStore } from '@/stores/session'
 
@@ -20,6 +22,20 @@ const CAPTIONS: Record<MicState, string> = {
   granted: 'Listening.',
   denied: 'Microphone access denied.',
   unsupported: 'Microphone unavailable.',
+}
+
+/**
+ * Once permission is settled, what the user is waiting on is the transcription link rather than
+ * the device, so the connection outranks the microphone in the caption.
+ */
+function captionFor(micState: MicState, connectionState: ConnectionState): string {
+  if (connectionState === 'connecting') {
+    return 'Connecting.'
+  }
+  if (connectionState === 'error') {
+    return 'Connection interrupted.'
+  }
+  return CAPTIONS[micState]
 }
 
 /** One shared identity, so the hero card and the docked mic are the same element travelling. */
@@ -102,7 +118,9 @@ function MicControl({ variant, micState, audio, transition, onToggle }: MicContr
 export function SessionScreen() {
   const { micState, toggle } = useMicrophone()
   const audio = useAudioLevel()
+  useRealtimeTranscription()
   const phase = useSessionStore((state) => state.phase)
+  const connectionState = useSessionStore((state) => state.connectionState)
 
   // Same end state, no travel: reduced motion collapses every transition to zero rather than
   // routing around the layout animation.
@@ -159,7 +177,7 @@ export function SessionScreen() {
                 transition={transition}
                 className="text-neutral-500 text-sm dark:text-neutral-400"
               >
-                {CAPTIONS[micState]}
+                {captionFor(micState, connectionState)}
               </motion.p>
             )}
           </AnimatePresence>

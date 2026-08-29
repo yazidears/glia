@@ -1,10 +1,27 @@
+import { useSessionStore } from '@/stores/session'
+
 /**
- * Transcript lines, oldest first, growing upward above the docked microphone.
+ * The rolling transcript, in the chat column above the microphone.
  *
- * Nothing is transcribed yet, so this renders nothing at all — no placeholder copy, no skeleton.
- * The list exists now so the scroll container around it is already the right shape when lines
- * start arriving.
+ * Renders nothing at all until there are words — no placeholder copy, no skeleton. The text comes
+ * from the transcription provider, so it is rendered as text and never as markup.
  */
 export function TranscriptList() {
-  return <ol className="flex flex-col gap-2 text-sm" />
+  const transcript = useSessionStore((state) => state.transcript)
+  const intent = useSessionStore((state) => state.intent)
+
+  if (!transcript) {
+    return null
+  }
+
+  return (
+    <section aria-live="polite" aria-label="Live transcript" className="flex flex-col gap-1 pb-4">
+      <p className="font-medium text-base text-neutral-900 leading-relaxed dark:text-neutral-100">
+        {transcript}
+      </p>
+      {intent?.subject ? (
+        <p className="text-neutral-500 text-sm dark:text-neutral-500">{intent.subject}</p>
+      ) : null}
+    </section>
+  )
 }

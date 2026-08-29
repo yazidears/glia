@@ -170,6 +170,7 @@ Found something? Open a private advisory, not a public issue.
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Threat model and controls |
 | [`docs/INSTRUCTIONS.md`](docs/INSTRUCTIONS.md) | Conventions, workflow, definition of done, demo script |
 | [`AGENTS.md`](AGENTS.md) | Operating rules for AI coding agents |
+| [`ENTIRE_CHALLENGE.md`](ENTIRE_CHALLENGE.md) | Entire checkpoint workflow for the side challenge |
 
 ## Team
 

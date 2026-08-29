@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # Fails the build on NEW critical dependency findings.
       # SAST and IaC gating require a paid plan — findings still land in the

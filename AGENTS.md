@@ -4,6 +4,23 @@ Operating rules for AI coding agents in this repository. Applies to Claude Code,
 
 Read this before your first edit, then `docs/INSTRUCTIONS.md` for conventions and `docs/PARTNERS.md` before touching any integration.
 
+## Hackathon operating guardrails
+
+This is a one-day hackathon repository. Optimize for a reliable live demo, not architectural completeness.
+
+- Competition opt-in deadline: 19:00 Europe/Madrid; live demos start at 20:00.
+- Stop adding features at 17:30 and keep the demo path runnable after every meaningful change.
+- Implement one vertical demo slice before secondary screens or integrations.
+- Every external provider needs a local fixture or deterministic mock.
+- Keep setup to one command and document environment variable names in `.env.example`; never store values.
+- Use synthetic data unless Yazide explicitly approves real data.
+- Run the actual demo flow before calling work complete.
+- Make logical local commits so Entire captures checkpoints.
+- Do not push, deploy, open a PR, or change repository visibility without Yazide's explicit approval.
+- Prefer Bun for fast setup; use the available Node/npm paths as fallback and do not replace system runtimes during the event.
+
+The first screen must state the problem in one sentence, the primary action must be obvious, and the visible result must arrive within 15 seconds or show honest progress. The core story must fit in 90 seconds. Prepare a recorded backup and static result before 18:30.
+
 ## What this project is
 
 **Glia is a voice-powered visual thinking tool.** You speak; it transcribes live, surfaces visual references that evolve as the idea sharpens, lets you pin the ones that resonate, and then generates one original image from the conversation, the distilled idea and your pins.
@@ -95,8 +112,8 @@ Entire checkpoints live in this repository's git refs and **this repo is public*
 
 ## Time discipline
 
-Built in one day against a hard 19:10 deadline, and the constraint still shapes the codebase.
+Built in one day against a hard competition deadline, and the constraint still shapes the codebase.
 
-**17:00 was feature freeze.** If you are reading this during the event, the only permitted changes are bug fixes on the demo path, documentation and the README.
+**17:30 is feature freeze.** After that, the only permitted changes are bug fixes on the demo path, documentation and the README.
 
 When a task is ambiguous, pick the option that makes the demo more reliable, state the assumption, and keep moving. Do not stop to ask about anything with an obvious answer. Do ask when the choice is a product decision with no objectively better option that constrains future work.

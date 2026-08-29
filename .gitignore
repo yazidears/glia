@@ -2,13 +2,15 @@
 .env
 .env.*
 !.env.example
+.private/
 
 # node
 node_modules/
 dist/
 .turbo/
+.next/
+.vercel/
 *.local
-*.log
 *.tsbuildinfo
 
 # python
@@ -31,6 +33,7 @@ _to_delete/
 playwright-report/
 test-results/
 coverage/
+*.log
 
 # os / editor
 .DS_Store

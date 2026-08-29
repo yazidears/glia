@@ -10,11 +10,13 @@
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
+    "gen:api": "uv run --directory apps/api python -c \"import json; from glia.main import app; print(json.dumps(app.openapi()))\" > packages/api-client/openapi.json && openapi-typescript packages/api-client/openapi.json -o packages/api-client/src/schema.d.ts",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.11",
+    "openapi-typescript": "7.13.0",
     "turbo": "2.10.12"
   }
 }
