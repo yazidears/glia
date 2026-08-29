@@ -354,8 +354,39 @@ class RealtimeSocketSession:
                             emit=self._send,
                         )
 
+                async def contextual_preview() -> None:
+                    # The current Fastino turn stays narrow so a real topic switch is instant.
+                    # In parallel, the deterministic local planner reads the full conversation
+                    # and recovers concrete project context (for example a Mediterranean clothing
+                    # brand when the latest turn only says "textile, calm"). This lane is free and
+                    # open-only; OpenAI remains responsible for the refined Cala-capable search.
+                    ideas = await local_synthesizer.synthesize(transcript, intent)
+                    await self._send(
+                        IdeasUpdated(
+                            revision=revision,
+                            ideas=ideas.ideas,
+                            keywords=ideas.keywords,
+                            source=ideas.source,
+                        )
+                    )
+                    fast_keys = {query.casefold() for query in fast_queries}
+                    queries = tuple(
+                        query
+                        for query in merge_idea_queries(intent, ideas)
+                        if query.casefold() not in fast_keys
+                    )
+                    if service is not None and queries:
+                        await service.discover(
+                            queries=queries,
+                            revision=revision,
+                            emit=self._send,
+                            include_cited=False,
+                        )
+
                 async with asyncio.TaskGroup() as group:
                     group.create_task(refine_and_discover())
+                    if not isinstance(synthesizer, LocalIdeaSynthesizer):
+                        group.create_task(contextual_preview())
                     if service is not None and fast_queries:
                         # Fastino has already identified the current visual subject. Let the free
                         # lanes search it immediately while OpenAI prepares more semantic English

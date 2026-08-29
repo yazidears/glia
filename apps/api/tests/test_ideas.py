@@ -114,6 +114,42 @@ async def test_search_planner_keeps_ui_language_but_searches_concrete_english_co
 
 
 @pytest.mark.asyncio
+async def test_openai_planner_tolerates_missing_ui_fields_and_uses_intent_copy() -> None:
+    responses = FakeResponses()
+
+    async def parse(**request: object) -> SimpleNamespace:
+        responses.calls.append(request)
+        payload_type = request["text_format"]
+        payload = payload_type(  # type: ignore[operator]
+            search_queries=["Mediterranean clothing", "Mediterranean fashion"],
+            provider_metadata="new field",
+        )
+        return SimpleNamespace(output_parsed=payload)
+
+    responses.parse = parse  # type: ignore[method-assign]
+    client = cast(AsyncOpenAI, SimpleNamespace(responses=responses))
+    synthesizer = OpenAIIdeaSynthesizer(
+        api_key="test-key",
+        model="gpt-5.6-luna",
+        timeout_seconds=1,
+        cache_size=4,
+        client=client,
+    )
+    intent = VisualIntent(
+        subject="textil",
+        moods=["tranquilo"],
+        styles=[],
+        palette=[],
+    )
+
+    result = await synthesizer.synthesize("Una marca mediterránea", intent)
+
+    assert result.ideas == ["textil", "tranquilo"]
+    assert result.keywords == ["textil", "tranquilo"]
+    assert result.search_queries == ["Mediterranean clothing", "Mediterranean fashion"]
+
+
+@pytest.mark.asyncio
 async def test_local_ideas_use_the_deterministic_query_ladder_as_search_queries() -> None:
     intent = VisualIntent(subject="manzanas verdes", moods=[], styles=[], palette=["verde"])
 
@@ -121,3 +157,64 @@ async def test_local_ideas_use_the_deterministic_query_ladder_as_search_queries(
 
     assert result.search_queries == ["green apples", "apples"]
     assert merge_idea_queries(intent, result) == ("green apples", "apples")
+
+
+@pytest.mark.asyncio
+async def test_local_fallback_uses_company_context_instead_of_literal_current_word() -> None:
+    transcript = (
+        "Quiero hacer una ropa de marca mediterránea. Entonces quiero que la marca refleje "
+        "el estilo de vida del Mediterráneo y el textil debería ser tranquilo."
+    )
+    intent = VisualIntent(
+        subject="textil",
+        moods=["tranquilo"],
+        styles=[],
+        palette=[],
+    )
+
+    result = await LocalIdeaSynthesizer().synthesize(transcript, intent)
+
+    assert result.ideas == ["textil", "tranquilo"]
+    assert result.search_queries == [
+        "Mediterranean fashion",
+        "Mediterranean clothing",
+        "Mediterranean lifestyle",
+    ]
+    assert merge_idea_queries(intent, result) == tuple(result.search_queries)
+    assert all("textil" not in query.casefold() for query in result.search_queries)
+
+
+@pytest.mark.asyncio
+async def test_local_fallback_plans_a_concrete_ui_search_from_project_context() -> None:
+    transcript = (
+        "Estoy diseñando una app y un mockup para comprar tickets y reservar entradas de clubs."
+    )
+    intent = VisualIntent(subject="interfaz", moods=[], styles=["minimalista"], palette=[])
+
+    result = await LocalIdeaSynthesizer().synthesize(transcript, intent)
+
+    assert result.search_queries == [
+        "event ticketing mobile app",
+        "nightclub booking app interface",
+        "mobile ticket user interface",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_local_fallback_yields_no_search_for_unknown_abstract_context() -> None:
+    intent = VisualIntent(subject="tranquilo", moods=[], styles=[], palette=[])
+
+    result = await LocalIdeaSynthesizer().synthesize("La idea debería sentirse bien.", intent)
+
+    assert result.search_queries == []
+    assert merge_idea_queries(intent, result) == ()
+
+
+@pytest.mark.asyncio
+async def test_local_fallback_keeps_a_concrete_object_searchable_offline() -> None:
+    intent = VisualIntent(subject="observatory", moods=["lonely"], styles=[], palette=["cobalt"])
+
+    result = await LocalIdeaSynthesizer().synthesize("A lonely cobalt observatory", intent)
+
+    assert result.search_queries == ["cobalt observatory", "observatory"]
+    assert merge_idea_queries(intent, result) == tuple(result.search_queries)

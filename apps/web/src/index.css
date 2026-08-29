@@ -1844,6 +1844,20 @@
     animation: none;
     opacity: 0.72;
     transform: translate3d(-50%, -50%, 0) scale(0.94);
+    transition: opacity 180ms var(--ease-out);
+  }
+
+  .generation-transition[data-stage] .generation-status-copy {
+    animation: none;
+    opacity: 1;
+    transform: translate3d(-50%, 0, 0);
+  }
+
+  .generation-transition[data-stage="revealing"] .generation-energy,
+  .generation-transition[data-stage="returning"] .generation-energy,
+  .generation-transition[data-stage="revealing"] .generation-status-copy,
+  .generation-transition[data-stage="returning"] .generation-status-copy {
+    opacity: 0;
   }
 
   .entry-loader,

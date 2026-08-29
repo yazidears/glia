@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import unicodedata
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Protocol, cast
@@ -11,7 +12,7 @@ from openai import (
     ContentFilterFinishReasonError,
     LengthFinishReasonError,
 )
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from glia.config import Settings
 from glia.contracts import IdeaSource, VisualIntent
@@ -23,11 +24,12 @@ class IdeasUnavailable(RuntimeError):
 
 
 class _IdeaPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ideas: list[str] = Field(min_length=1, max_length=3)
-    keywords: list[str] = Field(min_length=1, max_length=8)
-    search_queries: list[str] = Field(min_length=1, max_length=4)
+    # Live structured responses occasionally omit an optional UI field or include a new one.
+    # Keep this boundary tolerant, then clean and cap every list below. Only search_queries are
+    # load-bearing; deterministic intent terms can safely supply UI ideas and keywords.
+    ideas: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+    search_queries: list[str] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -44,10 +46,11 @@ class IdeaSynthesizer(Protocol):
 
 class LocalIdeaSynthesizer:
     async def synthesize(self, transcript: str, intent: VisualIntent) -> IdeaResult:
-        del transcript
-        queries = list(build_queries(intent))
+        queries = _local_search_queries(transcript, intent)
         keywords = _intent_terms(intent)
-        ideas = queries[:3] or keywords[:3] or [intent.subject]
+        # Ideas and keywords are UI copy in the speaker's language. Corpus queries are a
+        # separate plan and must never be derived from highlighted words alone.
+        ideas = keywords[:3] or [intent.subject]
         return IdeaResult(
             ideas=ideas,
             keywords=keywords or ideas,
@@ -133,14 +136,18 @@ class OpenAIIdeaSynthesizer:
         if payload is None:
             raise IdeasUnavailable("OpenAI returned no structured visual ideas")
 
+        intent_terms = _intent_terms(intent)
+        planned_queries = _clean(payload.search_queries, limit=4, max_length=80)
+        ideas = _clean(payload.ideas, limit=3) or intent_terms[:3] or [intent.subject]
+        keywords = _clean(payload.keywords, limit=8) or intent_terms or ideas
         result = IdeaResult(
-            ideas=_clean(payload.ideas, limit=3),
-            keywords=_clean(payload.keywords, limit=8),
+            ideas=ideas,
+            keywords=keywords,
             source="openai",
-            search_queries=_clean(payload.search_queries, limit=4, max_length=80),
+            search_queries=planned_queries,
         )
-        if not result.ideas or not result.keywords or not result.search_queries:
-            raise IdeasUnavailable("OpenAI returned an empty visual idea set")
+        if not result.search_queries:
+            raise IdeasUnavailable("OpenAI returned no usable image-search plan")
         self._cache[cache_key] = result
         self._cache.move_to_end(cache_key)
         while len(self._cache) > self._cache_size:
@@ -166,12 +173,152 @@ def merge_idea_queries(intent: VisualIntent, result: IdeaResult) -> tuple[str, .
     # corpus terms. Very specific design phrases often return one useful asset and many papers;
     # the concrete rungs fill the board with the actual object instead of broadening to an
     # ambiguous adjective such as "minimalistas".
-    candidates = [
-        *result.search_queries[:2],
-        *build_preview_queries(intent),
-        *build_queries(intent),
-    ]
+    if result.source == "local":
+        # The model fallback is deliberately closed. If its context planner cannot identify a
+        # concrete subject, returning no query keeps the useful current board on screen instead
+        # of searching a transient word such as "textil" or "tranquilo".
+        candidates = result.search_queries
+    else:
+        candidates = [
+            *result.search_queries[:2],
+            *build_preview_queries(intent),
+            *build_queries(intent),
+        ]
     return tuple(_clean(candidates, limit=4, max_length=80))
+
+
+_FASHION_TERMS = frozenset(
+    {
+        "apparel",
+        "clothes",
+        "clothing",
+        "fashion",
+        "garment",
+        "garments",
+        "moda",
+        "ropa",
+        "textil",
+        "textile",
+        "vestit",
+        "vestits",
+    }
+)
+_MEDITERRANEAN_TERMS = frozenset(
+    {"mediterranea", "mediterraneo", "mediterrani", "mediterrania", "mediterranean"}
+)
+_UI_TERMS = frozenset(
+    {
+        "app",
+        "aplicacion",
+        "aplicacio",
+        "dashboard",
+        "interfaz",
+        "interface",
+        "mockup",
+        "pantalla",
+        "prototipo",
+        "screen",
+        "ui",
+        "web",
+        "website",
+    }
+)
+_TICKETING_TERMS = frozenset(
+    {"booking", "club", "clubs", "entrada", "entradas", "event", "events", "ticket", "tickets"}
+)
+_BRAND_TERMS = frozenset(
+    {
+        "brand",
+        "branding",
+        "company",
+        "empresa",
+        "identidad",
+        "identity",
+        "logo",
+        "marca",
+    }
+)
+_GENERIC_FOCUS_TERMS = frozenset(
+    {
+        "calm",
+        "minimal",
+        "minimalist",
+        "minimalista",
+        "quiet",
+        "tranquil",
+        "tranquilo",
+        "textil",
+        "textile",
+    }
+)
+
+
+def _local_search_queries(transcript: str, intent: VisualIntent) -> list[str]:
+    """Build a fast, conservative corpus plan from conversation plus current focus."""
+    transcript_terms = _normalized_terms(transcript)
+    focus_terms = _normalized_terms(" ".join(_intent_terms(intent)))
+
+    # A generic current word such as "textil" is meaningful only inside the project context.
+    # Keep the category tied to the current Fastino focus so an old topic is not revived.
+    if focus_terms & _FASHION_TERMS and transcript_terms & _FASHION_TERMS:
+        if transcript_terms & _MEDITERRANEAN_TERMS:
+            return [
+                "Mediterranean fashion",
+                "Mediterranean clothing",
+                "Mediterranean lifestyle",
+            ]
+        return [
+            "fashion brand campaign",
+            "clothing product photography",
+            "fashion lifestyle photography",
+        ]
+
+    if focus_terms & _UI_TERMS and transcript_terms & _UI_TERMS:
+        if transcript_terms & _TICKETING_TERMS:
+            return [
+                "event ticketing mobile app",
+                "nightclub booking app interface",
+                "mobile ticket user interface",
+            ]
+        return [
+            "mobile app interface design",
+            "website user interface",
+            "digital product mockup",
+        ]
+
+    if focus_terms & _BRAND_TERMS and transcript_terms & _BRAND_TERMS:
+        return [
+            "brand identity design",
+            "company branding system",
+            "creative brand moodboard",
+        ]
+
+    # Preview queries are a small allowlist of measured, concrete concepts. Reuse the normal
+    # deterministic ladder only for those known-safe subjects (apples, cars, outlets, etc.).
+    preview_queries = build_preview_queries(intent)
+    if preview_queries:
+        base_queries = build_queries(intent)
+        return list(base_queries if preview_queries == base_queries else preview_queries)
+
+    # A clearly named object is still safe without a model plan. This keeps the deterministic
+    # fixture and offline demo useful for subjects such as "observatory", while generic mood,
+    # style and material words continue to hold the current board instead of broadening it.
+    subject_terms = _normalized_terms(intent.subject)
+    if subject_terms and not subject_terms <= _GENERIC_FOCUS_TERMS:
+        return list(build_queries(intent))
+    return []
+
+
+def _normalized_terms(value: str) -> set[str]:
+    decomposed = unicodedata.normalize("NFKD", value.casefold())
+    ascii_value = "".join(
+        character for character in decomposed if not unicodedata.combining(character)
+    )
+    return {
+        token.strip(".,!?;:()[]{}\"'")
+        for token in ascii_value.split()
+        if token.strip(".,!?;:()[]{}\"'")
+    }
 
 
 def _intent_terms(intent: VisualIntent) -> list[str]:

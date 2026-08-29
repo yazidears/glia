@@ -269,10 +269,68 @@ async def test_settled_search_starts_fastino_queries_while_openai_refines() -> N
     await asyncio.wait_for(ideas.started.wait(), timeout=1)
     await asyncio.wait_for(discovery.started.wait(), timeout=1)
     assert discovery.calls == [(build_preview_queries(intent), 0, False)]
-    assert not any(message["type"] == "ideas.updated" for message in websocket.messages)
+    assert not any(
+        message["type"] == "ideas.updated" and message["source"] == "openai"
+        for message in websocket.messages
+    )
 
     ideas.release.set()
     await pending
     assert discovery.calls[1][0][0] == "blue automobile product photography"
     assert discovery.calls[1][1:] == (0, True)
     assert any(message["type"] == "ideas.updated" for message in websocket.messages)
+
+
+@pytest.mark.asyncio
+async def test_full_context_semantic_preview_does_not_wait_for_openai() -> None:
+    websocket = RecordingWebSocket()
+    openai = BlockingIdeaSynthesizer()
+    discovery = RecordingDiscovery()
+    session = RealtimeSocketSession(
+        websocket=cast(WebSocket, websocket),
+        debounce_ms=1,
+        max_message_bytes=10_000,
+        idea_synthesizer=openai,
+        discovery=cast(DiscoveryService, discovery),
+        discovery_debounce_ms=0,
+    )
+    transcript = (
+        "Estem creant una marca de roba mediterrània. "
+        "Volem un estil relaxat. Textil tranquil."
+    )
+    current_intent = VisualIntent(
+        subject="textil",
+        moods=["tranquilo"],
+        styles=[],
+        palette=[],
+    )
+
+    session._schedule_discovery(transcript, current_intent)
+    pending = session._pending_discovery
+    assert pending is not None
+    await asyncio.wait_for(openai.started.wait(), timeout=1)
+    await asyncio.wait_for(discovery.started.wait(), timeout=1)
+
+    assert discovery.calls == [
+        (
+            (
+                "Mediterranean fashion",
+                "Mediterranean clothing",
+                "Mediterranean lifestyle",
+            ),
+            0,
+            False,
+        )
+    ]
+    assert any(
+        message["type"] == "ideas.updated" and message["source"] == "local"
+        for message in websocket.messages
+    )
+    assert not any(
+        message["type"] == "ideas.updated" and message["source"] == "openai"
+        for message in websocket.messages
+    )
+
+    openai.release.set()
+    await pending
+    assert discovery.calls[-1][1:] == (0, True)
