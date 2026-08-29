@@ -1,0 +1,11 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+.private/
+node_modules/
+dist/
+.next/
+.vercel/
+coverage/
+*.log
