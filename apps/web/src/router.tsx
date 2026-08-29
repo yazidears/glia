@@ -1,11 +1,12 @@
 import { createRootRoute, createRoute, createRouter, Outlet } from '@tanstack/react-router'
+import { LandingScreen } from '@/screens/landing-screen'
 
 const rootRoute = createRootRoute({ component: Outlet })
 
 const landingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  component: () => null,
+  component: LandingScreen,
 })
 
 export const router = createRouter({
