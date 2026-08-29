@@ -10,6 +10,7 @@ dist/
 .turbo/
 .next/
 .vercel/
+*.local
 *.tsbuildinfo
 
 # python
