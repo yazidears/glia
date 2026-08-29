@@ -3,8 +3,8 @@ from typing import Annotated, Literal
 from uuid import uuid4
 
 import structlog
-from fastapi import APIRouter, Depends, Request, WebSocket
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, Query, Request, WebSocket
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from glia.config import Settings, get_settings
 from glia.contracts import (
@@ -25,6 +25,8 @@ from glia.discovery.cala import (
     extract_subject,
     join_evidence,
 )
+from glia.discovery.fetch import FetchFailed, FetchRejected, ImageFetcher
+from glia.discovery.service import DiscoveryService, build_discovery_service
 from glia.realtime.distiller import build_intent_distiller
 from glia.realtime.socket import RealtimeSocketSession
 from glia.realtime.token import (
@@ -50,6 +52,24 @@ def get_cala_client() -> CalaClient:
     """One client, one ledger, one cache, for the life of the process. The `lru_cache` is what
     makes "one Cala call site" true at runtime rather than only by convention."""
     return CalaClient(get_settings())
+
+
+@lru_cache(maxsize=1)
+def get_discovery_service() -> DiscoveryService:
+    """One process-wide service so its query cache is shared across sessions."""
+    return build_discovery_service(get_settings())
+
+
+@lru_cache(maxsize=1)
+def get_image_fetcher() -> ImageFetcher:
+    settings = get_settings()
+    return ImageFetcher(
+        allowlist=settings.image_host_allowlist,
+        user_agent=settings.image_fetch_user_agent,
+        max_bytes=settings.image_fetch_max_bytes,
+        connect_timeout=settings.image_fetch_connect_timeout,
+        total_timeout=settings.image_fetch_total_timeout,
+    )
 
 
 @router.get("/health")
@@ -267,6 +287,49 @@ def _terminal(
     )
 
 
+@router.get("/api/image", response_model=None)
+async def image_proxy(
+    request: Request,
+    fetcher: Annotated[ImageFetcher, Depends(get_image_fetcher)],
+    url: Annotated[str, Query(max_length=2_000)],
+) -> StreamingResponse | JSONResponse:
+    """Re-serve a discovered image so the browser never hot-links a third party.
+
+    `url` is remote-supplied and is treated as such: ImageFetcher owns the
+    scheme and host allowlists, the resolved-address check, redirect refusal,
+    the content-type check and the streamed byte cap.
+    """
+    correlation_id = request.headers.get("X-Request-ID", str(uuid4()))
+    try:
+        stream = await fetcher.open(url)
+    except FetchRejected:
+        return _problem(
+            status=400,
+            code="image_url_rejected",
+            title="That image URL is not fetchable",
+            detail="The requested URL is not an allowed image source.",
+            correlation_id=correlation_id,
+        )
+    except FetchFailed:
+        return _problem(
+            status=502,
+            code="image_upstream_failed",
+            title="The image host did not return an image",
+            detail="The upstream image could not be retrieved.",
+            correlation_id=correlation_id,
+        )
+    return StreamingResponse(
+        stream.chunks,
+        media_type=stream.content_type,
+        headers={
+            "Cache-Control": "public, max-age=3600",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+            "Referrer-Policy": "no-referrer",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.websocket("/ws")
 async def realtime_socket(websocket: WebSocket) -> None:
     settings = get_settings()
@@ -276,6 +339,8 @@ async def realtime_socket(websocket: WebSocket) -> None:
         max_message_bytes=settings.realtime_max_message_bytes,
         distiller=build_intent_distiller(settings),
         gate_jaccard_threshold=settings.distill_gate_jaccard_threshold,
+        discovery=get_discovery_service(),
+        discovery_debounce_ms=settings.discovery_debounce_ms,
     )
     await session.run()
 

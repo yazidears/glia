@@ -111,6 +111,38 @@ class IntentUpdated(StrictModel):
     change_reasons: list[IntentChangeReason] = Field(default_factory=list)
 
 
+CandidateLane = Literal["cited", "open"]
+
+
+class Candidate(StrictModel):
+    id: str
+    lane: CandidateLane
+    image_url: str
+    source_url: str
+    publisher: str | None = None
+    title: str | None = None
+    evidence: str | None = None
+    licence: str | None = None
+    entity_name: str | None = None
+    entity_type: str | None = None
+    width: int | None = None
+    height: int | None = None
+    score: float
+
+
+class CandidatesBatch(StrictModel):
+    type: Literal["candidates.batch"] = "candidates.batch"
+    revision: int
+    candidates: list[Candidate]
+
+
+class LedgerUpdated(StrictModel):
+    type: Literal["ledger.updated"] = "ledger.updated"
+    cala_queries: int
+    references: int
+    cited: int
+
+
 class Pong(StrictModel):
     type: Literal["pong"] = "pong"
     event_id: str
@@ -123,7 +155,15 @@ class SocketError(StrictModel):
     recoverable: bool
 
 
-ServerMessage = SessionReady | TranscriptAccepted | IntentUpdated | Pong | SocketError
+ServerMessage = (
+    SessionReady
+    | TranscriptAccepted
+    | IntentUpdated
+    | CandidatesBatch
+    | LedgerUpdated
+    | Pong
+    | SocketError
+)
 
 
 # ─── Cala discovery ─────────────────────────────────────────────────────────────
