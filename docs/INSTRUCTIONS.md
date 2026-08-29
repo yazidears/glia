@@ -108,13 +108,15 @@ Three people, seven hours, no overlap. Own your lane, integrate at the seams.
 
 | Owner | Lane | Seam |
 |---|---|---|
-| **Yazide** (captain) | Backend core: FastAPI, WebSocket session channel, Postgres schema, OpenAI token minting, prompt synthesis, fal generation | The OpenAPI schema and the WebSocket message contract — publish both early |
+| **Yazide** | Backend core: FastAPI, WebSocket session channel, Postgres schema, OpenAI token minting, prompt synthesis, fal generation | The OpenAPI schema and the WebSocket message contract — publish both early |
 | **Sergio** | Frontend: the four-phase screen, live transcript, image grid with Motion choreography, pinning, the result view | `packages/api-client` (generated) and the WebSocket message types |
 | **Lluís** | Discovery + ops: the distiller, the gate, the fetcher with SSRF guards, both image lanes, dedupe and ranking, Aikido, Entire, deploy | The `Candidate` type — lane, url, attribution, hash, score |
 
 Agree the `Candidate` shape and the WebSocket message union **in the first thirty minutes**. Everything else can move independently once those two contracts are fixed.
 
-The captain also owns the submission form. Everyone owns the demo script.
+Lanes are ownership of work, not authority — every decision is a call all three of us make. Everyone owns the demo script.
+
+One mechanical detail: the event platform takes a single submission per team, from the account that created it. That is Yazide's, so the form goes from there. Agree the contents together before it is sent.
 
 ## Cadence
 

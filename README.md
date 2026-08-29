@@ -173,7 +173,9 @@ Found something? Open a private advisory, not a public issue.
 
 ## Team
 
-Yazide (captain) · Sergio Pulido · Lluís Francesc Collell Erra
+Yazide · Sergio Pulido · Lluís Francesc Collell Erra
+
+Three of us, equal call on every decision.
 
 ## Name
 

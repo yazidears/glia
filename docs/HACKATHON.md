@@ -13,7 +13,7 @@ Event reference for team **glia**. Everything on this page is event fact, not pr
 | Event window | 09:30 – 21:00 CEST |
 | **Submission deadline** | **19:10 CEST** |
 | Team | `glia` — invite code `GV7KRQ`, 3/5 members |
-| Members | Yazide (captain, submits), Sergio Pulido, Lluís Francesc Collell Erra |
+| Members | Yazide, Sergio Pulido, Lluís Francesc Collell Erra — equal partners |
 | Tracks entered | Cala (by Cala), Open Innovation |
 
 ## Agenda
@@ -103,7 +103,7 @@ Tick these before 19:00, not 19:09.
 - [ ] `entire status` clean; checkpoints pushed
 - [ ] Loom demo recorded, ≤ 2 minutes, link in README
 - [ ] Deployed URL live and reachable from a phone
-- [ ] Captain (Yazide) has submitted the form
+- [ ] Submission form sent (the platform accepts one submission per team; it goes from Yazide's account, which created the team)
 - [ ] Competition opt-in done before 19:00
 
 ## Working timeline
