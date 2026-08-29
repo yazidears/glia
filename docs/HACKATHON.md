@@ -32,7 +32,7 @@ Event reference for team **glia**. Everything on this page is event fact, not pr
 
 1. Submit by **19:10**.
 2. Team of **max. 5 people**. We are 3.
-3. Use **minimum 3 partner technologies**. We use **5** — Cala, Pioneer (Fastino Labs), fal, Aikido, Entire.
+3. Use **minimum 3 partner technologies**. We use **6** — OpenAI, Cala, Pioneer (Fastino Labs), fal, Aikido, Entire.
 4. Project must be **created newly at this hackathon**. Boilerplates are allowed. The repo was initialised empty on 29 Aug 2026; every commit is inside the event window and every commit carries an Entire checkpoint proving it.
 
 ## What must be submitted
@@ -65,9 +65,9 @@ Event reference for team **glia**. Everything on this page is event fact, not pr
 
 | Challenge | Prize | Our position |
 |---|---|---|
-| Aikido | 1000 € | Zen runtime firewall on the API + CI gating + safe-chain + secrets pre-commit hook |
-| fal — Best Use of fal | 1000 $ fal credits | Server-proxied generative media blocks with signed webhooks |
-| Fastino Labs — Best Use of Pioneer | 500 € | Single LLM gateway + GLiNER2 PII redaction + GLiGuard injection screening |
+| Aikido | 1000 € | Zen blocking SSRF against a fetcher that requests URLs the open web chose — plus CI gating, safe-chain, secrets hook, and a live security panel inside the app |
+| fal — Best Use of fal | 1000 $ fal credits | `flux-pro/kontext/max/multi` with pinned reference URLs as `image_urls`, so pinning genuinely conditions the output |
+| Fastino Labs — Best Use of Pioneer | 500 € | GLiNER2 distils typed visual attributes from live speech on every pause, and gates all downstream spend |
 | Entire | x3 $425 gift cards, x2 PS5 | Every commit carries a checkpoint; `entire why` is part of the demo |
 
 ### Finalist stage prizes
@@ -83,7 +83,7 @@ Event reference for team **glia**. Everything on this page is event fact, not pr
 | Partner | What it is | Link |
 |---|---|---|
 | Cala | Verified, structured, cited data for AI agents | https://www.cala.ai |
-| OpenAI | Frontier models (credits claimable from the event page) | — |
+| OpenAI | Frontier models and realtime transcription (credits claimable from the event page) | — |
 | fal | Generative media platform (image, video, audio) | https://fal.ai |
 | Fastino Labs / Pioneer | Inference API with routing + adaptive retraining | https://pioneer.ai |
 | Entire | Agent sessions, prompts and tool calls stored with your commits | https://entire.io |
@@ -113,9 +113,10 @@ Back-calculated from the 19:10 deadline. Freeze times are hard.
 | Time | Milestone |
 |---|---|
 | 12:30 | Scaffold done: monorepo boots, web + api talk to each other |
-| 14:00 | Cala grounding path works end to end — question in, cited answer out |
-| 15:30 | Notion-like editor renders verified-fact blocks with citation chips |
-| 16:30 | Pioneer gateway + PII redaction live; fal media block working |
+| 12:30 | Three spikes reported: WebRTC transcription, GLiNER2 shape, Cala→og:image hit rate |
+| 14:00 | Speech in, transcript live, first candidates in the grid |
+| 15:30 | Distiller gate working — grid visibly reorganises when the idea changes |
+| 16:30 | Pinning conditions generation; fal returns an image with the synthesised prompt |
 | 17:00 | **Feature freeze.** Nothing new after this. |
 | 17:30 | Deployed, Aikido green, security dashboard showing real findings |
 | 18:00 | Loom recorded |
@@ -128,7 +129,7 @@ Back-calculated from the 19:10 deadline. Freeze times are hard.
 
 The jury scores **creativity & technical complexity**, plus partner-tech bonus. Concretely that means the demo must show, in order:
 
-1. The problem in one sentence — AI writing tools produce confident text with no accountable source.
-2. The product doing something no other team's does — a document where every claim is traceable to a re-fetchable upstream endpoint and a content hash.
-3. The depth behind it — five partner integrations that each do real work, not five logos on a slide.
-4. The proof — `entire why` on a line of code, and an Aikido Zen block event, both live.
+1. The problem in one sentence — people can describe how an image should feel but cannot write the prompt.
+2. The product doing something no other team's does — references that reorganise live as a spoken idea changes direction.
+3. The depth behind it — six partner integrations that each do real work, not six logos on a slide.
+4. The proof — unpin an image, regenerate, and the output visibly changes. Then Zen blocking a hostile URL and `entire why` on the fetcher.
