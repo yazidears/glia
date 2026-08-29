@@ -1,6 +1,7 @@
 import type { ConnectionState } from '@glia/api-client'
 import { Mic } from 'lucide-react'
 import { useEffect } from 'react'
+import { PinRail } from '@/components/pin-rail'
 import { SettingsDialog } from '@/components/settings-dialog'
 import { TranscriptList } from '@/components/transcript-list'
 import { Waveform } from '@/components/waveform'
@@ -67,6 +68,9 @@ export function SessionScreen() {
           <Workpane />
         </div>
       ) : null}
+
+      {/* Absent at zero pins, and it renders itself away — see `PinRail`. */}
+      {isSession ? <PinRail /> : null}
 
       <button
         type="button"

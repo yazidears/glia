@@ -17,6 +17,39 @@ export interface TranscriptSegment {
  */
 export type SessionPhase = 'hero' | 'session'
 
+/**
+ * One pinned reference, in the shape the whole app agrees on.
+ *
+ * `imageUrl` is nullable and load-bearing. The board's stickers are inline SVG with no public
+ * URL, so they pin as `null` — fal fetches references over the internet and cannot reach them.
+ * Lane B's tiles will carry a real https URL through this same field, which is why there is one
+ * pin path and not two: the difference between a pin that conditions the image and a pin that
+ * only steers the prompt is a value, not a type.
+ */
+export interface PinnedRef {
+  id: string
+  title: string
+  lane: string
+  imageUrl: string | null
+  sourceUrl: string | null
+}
+
+/** What the workpane has to show for the generated image. */
+export interface GeneratedImage {
+  imageUrl: string
+  /** Verbatim, exactly what the server sent to fal. Shown, never paraphrased. */
+  prompt: string
+  model: string
+  referenceCount: number
+}
+
+export interface GenerationFailure {
+  message: string
+  correlationId: string
+}
+
+export type GenerationStatus = 'idle' | 'generating' | 'ready' | 'error'
+
 interface SessionState {
   micState: MicState
   /** The live capture stream while `micState` is `granted`, and null in every other state. */
@@ -44,6 +77,16 @@ interface SessionState {
    * "not settled" and "the idea did not move" the same no-op for anything keyed on it.
    */
   discoveryTranscript: string
+  /** The conditioning input, in click order. Empty means the rail is not on screen at all. */
+  pinned: PinnedRef[]
+  togglePin: (ref: PinnedRef) => void
+  clearPins: () => void
+  generationStatus: GenerationStatus
+  generation: GeneratedImage | null
+  generationError: GenerationFailure | null
+  startGenerating: () => void
+  settleGeneration: (generation: GeneratedImage) => void
+  failGeneration: (failure: GenerationFailure) => void
   setConnection: (connectionState: ConnectionState, connectionError?: string | null) => void
   setSessionId: (sessionId: string) => void
   setTranscriptState: (transcript: string, transcriptSegments: TranscriptSegment[]) => void
@@ -80,6 +123,24 @@ export const useSessionStore = create<SessionState>()((set) => ({
   intent: null,
   sessionId: null,
   discoveryTranscript: '',
+  pinned: [],
+  generationStatus: 'idle',
+  generation: null,
+  generationError: null,
+  togglePin: (ref) =>
+    set((state) => ({
+      pinned: state.pinned.some((pin) => pin.id === ref.id)
+        ? state.pinned.filter((pin) => pin.id !== ref.id)
+        : [...state.pinned, ref],
+    })),
+  clearPins: () => set({ pinned: [] }),
+  // The previous result stays on screen while the next one runs. The rail is the only place
+  // that says "generating", so the workpane never blanks out the image the user is comparing
+  // against — and the board stays reachable, which is where the next pin comes from.
+  startGenerating: () => set({ generationStatus: 'generating', generationError: null }),
+  settleGeneration: (generation) =>
+    set({ generationStatus: 'ready', generation, generationError: null }),
+  failGeneration: (generationError) => set({ generationStatus: 'error', generationError }),
   setConnection: (connectionState, connectionError = null) =>
     set({ connectionState, connectionError }),
   setSessionId: (sessionId) => set({ sessionId }),
@@ -108,5 +169,9 @@ export const useSessionStore = create<SessionState>()((set) => ({
       intent: null,
       sessionId: null,
       discoveryTranscript: '',
+      pinned: [],
+      generationStatus: 'idle',
+      generation: null,
+      generationError: null,
     }),
 }))
