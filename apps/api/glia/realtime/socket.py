@@ -18,17 +18,33 @@ from glia.contracts import (
     TranscriptDelta,
     client_message_adapter,
 )
+from glia.realtime.distiller import (
+    DiscoveryGate,
+    DistillationResult,
+    DistillationUnavailable,
+    FixtureIntentDistiller,
+    IntentDistiller,
+)
 from glia.realtime.transcript import FastIntentProjector, TranscriptAccumulator
 
 
 class RealtimeSocketSession:
-    def __init__(self, websocket: WebSocket, debounce_ms: int, max_message_bytes: int) -> None:
+    def __init__(
+        self,
+        websocket: WebSocket,
+        debounce_ms: int,
+        max_message_bytes: int,
+        distiller: IntentDistiller | None = None,
+        gate_jaccard_threshold: float = 0.4,
+    ) -> None:
         self._websocket = websocket
         self._debounce_seconds = debounce_ms / 1_000
         self._debounce_ms = debounce_ms
         self._max_message_bytes = max_message_bytes
         self._transcript = TranscriptAccumulator()
         self._projector = FastIntentProjector()
+        self._distiller = distiller or FixtureIntentDistiller(self._projector)
+        self._gate = DiscoveryGate(gate_jaccard_threshold)
         self._revision = 0
         self._pending_projection: asyncio.Task[None] | None = None
         self._send_lock = asyncio.Lock()
@@ -113,13 +129,32 @@ class RealtimeSocketSession:
         transcript = self._transcript.snapshot()
         if not transcript:
             return
+        if stable:
+            try:
+                distilled = await self._distiller.distill(transcript)
+            except DistillationUnavailable:
+                distilled = DistillationResult(
+                    intent=self._projector.project(transcript),
+                    source="local",
+                )
+            gate = self._gate.evaluate(distilled.intent)
+        else:
+            distilled = DistillationResult(
+                intent=self._projector.project(transcript),
+                source="local",
+            )
+            gate = None
+
         self._revision += 1
         await self._send(
             IntentUpdated(
                 revision=self._revision,
                 transcript=transcript,
-                intent=self._projector.project(transcript),
+                intent=distilled.intent,
                 stable=stable,
+                source=distilled.source,
+                should_discover=gate.should_discover if gate else False,
+                change_reasons=gate.reasons if gate else [],
             )
         )
 
