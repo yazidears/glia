@@ -191,6 +191,24 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** HealthResponse */
+        HealthResponse: {
+            /** Status */
+            status: string;
+            /** Service */
+            service: string;
+            /** Mode */
+            mode: string;
+            /** Realtime */
+            realtime: string;
+            /** Distiller */
+            distiller: string;
+            /**
+             * Image Discovery
+             * @description Whether this server can return image candidates for a distilled intent. False means the client must not offer an image-bearing output mode.
+             */
+            image_discovery: boolean;
+        };
         /**
          * LedgerSnapshot
          * @description Credits spent this process. `entity_calls` is counted separately because
@@ -262,9 +280,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["HealthResponse"];
                 };
             };
         };

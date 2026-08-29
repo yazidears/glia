@@ -13,6 +13,20 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class HealthResponse(StrictModel):
+    status: str
+    service: str
+    mode: str
+    realtime: str
+    distiller: str
+    image_discovery: bool = Field(
+        description=(
+            "Whether this server can return image candidates for a distilled intent. "
+            "False means the client must not offer an image-bearing output mode."
+        )
+    )
+
+
 class RealtimeTokenRequest(StrictModel):
     client_id: str = Field(min_length=8, max_length=128)
     languages: list[ExpectedLanguage] = Field(

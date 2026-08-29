@@ -11,6 +11,7 @@ from glia.contracts import (
     CalaEntityHit,
     DiscoverRequest,
     DiscoverResponse,
+    HealthResponse,
     LedgerSnapshot,
     RealtimeTokenRequest,
     RealtimeTokenResponse,
@@ -52,20 +53,24 @@ def get_cala_client() -> CalaClient:
 
 
 @router.get("/health")
-async def health(settings: Annotated[Settings, Depends(get_settings)]) -> dict[str, str]:
-    return {
-        "status": "ok",
-        "service": "glia-api",
-        "mode": settings.demo_mode,
-        "realtime": "configured" if settings.openai_api_key else "unconfigured",
-        "distiller": (
+async def health(settings: Annotated[Settings, Depends(get_settings)]) -> HealthResponse:
+    return HealthResponse(
+        status="ok",
+        service="glia-api",
+        mode=settings.demo_mode,
+        realtime="configured" if settings.openai_api_key else "unconfigured",
+        distiller=(
             "fixture"
             if settings.demo_mode == "fixture"
             else "configured"
             if settings.pioneer_api_key
             else "unconfigured"
         ),
-    }
+        # The candidate pipeline does not exist yet, so no configuration can make this true.
+        # It becomes a real capability check when discovery lands; until then the client has to
+        # be told plainly that no image can arrive, rather than being allowed to ask for one.
+        image_discovery=False,
+    )
 
 
 @router.post("/api/realtime-token", response_model=RealtimeTokenResponse)
