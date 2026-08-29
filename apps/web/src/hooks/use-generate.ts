@@ -1,5 +1,11 @@
-import type { GenerateRequest, GenerateResponse, PinnedRefPayload } from '@glia/api-client'
+import type {
+  DiscoverResponse,
+  GenerateRequest,
+  GenerateResponse,
+  PinnedRefPayload,
+} from '@glia/api-client'
 import { useCallback } from 'react'
+import { useDiscovery } from '@/hooks/use-discovery'
 import { type GenerationStatus, type PinnedRef, useSessionStore } from '@/stores/session'
 
 // The server caps its own poll at ~45s and answers with a typed timeout rather than hanging.
@@ -10,6 +16,37 @@ const REQUEST_TIMEOUT_MS = 75_000
 function apiUrl(path: string): string {
   const base = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') ?? ''
   return `${base}${path}`
+}
+
+// Mirrors `GroundingNote` and `MAX_GROUNDING_NOTES` on the server. The server bounds these
+// itself — it has to, the browser is not a thing to trust with a payload size — so these two
+// exist to keep a well-behaved client from ever producing the 422 rather than to enforce
+// anything. A passage over the cap is clipped here and again, harder, in `compose_brief`.
+const GROUNDING_CHARACTERS = 800
+const MAX_GROUNDING_NOTES = 3
+
+/**
+ * What Cala already answered about this subject, on its way back down to the prompt.
+ *
+ * Cala's own `explainability` says which context items carried the answer; those are the ones
+ * worth spending the prompt's attention on, and they go behind the answer itself. Everything
+ * about this is best-effort: a discovery that failed, was debounced, never ran, or came back
+ * without credits yields an empty list, and an empty list is a generation identical to the one
+ * this app made before grounding existed. That is the point — the research lane must not be
+ * able to take the image down with it.
+ */
+function groundingFrom(discovery: DiscoverResponse | undefined): string[] {
+  if (discovery?.status !== 'ok') {
+    return []
+  }
+  const notes = [
+    ...(discovery.answer ? [discovery.answer] : []),
+    ...discovery.context.filter((item) => item.carried_answer).map((item) => item.content),
+  ]
+  return notes
+    .map((note) => note.replace(/\s+/g, ' ').trim().slice(0, GROUNDING_CHARACTERS))
+    .filter((note) => note.length > 0)
+    .slice(0, MAX_GROUNDING_NOTES)
 }
 
 /**
@@ -113,6 +150,11 @@ export interface GenerateHandle {
  * the ones carrying an origin image, and reports `reference_count` and `unavailable_references`
  * so nothing here has to guess which happened.
  *
+ * The grounding rides along for the same reason the pins do: it is a real input to the prompt,
+ * not decoration. It is read from the discovery query's cache rather than passed in — same key,
+ * infinite `staleTime` — so this costs no request and no Cala credit, and a session that never
+ * discovered anything simply sends nothing.
+ *
  * The in-flight guard is doubled deliberately. This one keeps the button honest; the server's
  * is the one that actually protects the account, because fal allows two concurrent requests and
  * a browser is not a thing to trust with that.
@@ -122,6 +164,8 @@ export function useGenerate(): GenerateHandle {
   const transcript = useSessionStore((state) => state.transcript)
   const pinned = useSessionStore((state) => state.pinned)
   const status = useSessionStore((state) => state.generationStatus)
+  // Same query key as the workpane's, so this reads the cache and does not re-fetch.
+  const { data: discovery } = useDiscovery()
   const startGenerating = useSessionStore((state) => state.startGenerating)
   const settleGeneration = useSessionStore((state) => state.settleGeneration)
   const failGeneration = useSessionStore((state) => state.failGeneration)
@@ -138,6 +182,7 @@ export function useGenerate(): GenerateHandle {
       session_id: sessionId,
       transcript,
       pins: pinned.map(toPayload),
+      grounding: groundingFrom(discovery),
     })
       .then((result) => {
         if (result.status !== 'ok') {
@@ -170,7 +215,16 @@ export function useGenerate(): GenerateHandle {
           correlationId: error instanceof GenerationError ? error.correlationId : 'unknown',
         })
       })
-  }, [failGeneration, pinned, sessionId, settleGeneration, startGenerating, status, transcript])
+  }, [
+    discovery,
+    failGeneration,
+    pinned,
+    sessionId,
+    settleGeneration,
+    startGenerating,
+    status,
+    transcript,
+  ])
 
   return { generate, status, canGenerate }
 }
