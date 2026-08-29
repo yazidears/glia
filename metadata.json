@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "01M16VNM436HXRQY2X6HMS83VQ",
+  "strategy": "manual-commit",
+  "branch": "claude/session-settings-control-d275fe",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".env.example",
+    "apps/api/glia/config.py",
+    "apps/api/glia/realtime/distiller.py",
+    "apps/api/tests/test_distiller.py",
+    "apps/web/src/components/transcript-list.tsx",
+    "apps/web/src/components/waveform.tsx",
+    "apps/web/src/hooks/use-audio-level.ts",
+    "apps/web/src/hooks/use-microphone.ts",
+    "apps/web/src/hooks/use-realtime-transcription.ts",
+    "apps/web/src/screens/session-screen.tsx",
+    "apps/web/src/stores/session.ts",
+    "docs/CALA_DEMOS.md",
+    "docs/PARTNERS.md",
+    "docs/PROMPTS_UX.md",
+    "docs/TICKETS_UX.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 32,
+    "cache_creation_tokens": 13947,
+    "cache_read_tokens": 4737099,
+    "output_tokens": 6290,
+    "api_call_count": 16
+  }
+}
