@@ -2,146 +2,184 @@
 
 Every choice here is made. Rationale and rejected alternatives are recorded so nobody relitigates them at 16:00.
 
-## The product, in one paragraph
+## The product
 
-**Glia is a verifiable workspace.** It looks like Notion: blocks, slash commands, drag handles. The difference is that every AI-written claim carries provenance. Ask Glia to draft a section and it grounds each claim in Cala's verified entity graph, so the sentence you read is backed by a publisher URL, a re-fetchable upstream API endpoint and a SHA-256 hash of the response that produced it. Claims that cannot be grounded are rendered as visibly unverified rather than silently asserted. Media is generated with fal, all model traffic is routed and PII-scrubbed through Pioneer, the runtime is defended by Aikido Zen, and the repo itself is auditable because Entire binds every commit to the agent session that produced it.
+**Glia is a voice-powered visual thinking tool. You speak until you see it.**
 
-The thesis is one word: **provenance, all the way down** — from a sentence in a document, to the API response that justifies it, to the commit that shipped the code, to the prompt that wrote the commit.
+The screen starts almost empty and says *Speak your mind*. As you talk, Glia transcribes you live and starts surfacing visual references — images that drift in and reorganise as the idea sharpens. You pin the ones that resonate. Every pin teaches Glia more about the subject, mood, style, palette and composition you actually mean. When the direction feels right you hit **Generate**, and Glia composes the live conversation, the distilled essence of the idea, your pinned references and the visual direction it discovered into one original image — shown next to the transcript and a concise prompt that captures what you imagined.
 
-Glial cells do not fire. They connect, insulate and route. That is the product.
+It is for people who can describe a feeling but cannot write the perfect visual prompt. The gap between *"something warm and brutalist, but lonely"* and a working diffusion prompt is where this product lives.
+
+Glial cells do not fire. They connect, insulate and route — the tissue that makes signal possible. That is the job: between a half-formed thought and an image, Glia is the connective layer.
+
+## The pipeline
+
+```
+  mic ──WebRTC──▶ OpenAI Realtime (gpt-live-transcribe)
+                        │ transcript deltas paint locally
+                        │ settled turns ──▶ FastAPI over WebSocket
+                        ▼
+              ┌─────────────────────────────────────────┐
+              │ DISTILL   Pioneer GLiNER2               │
+              │ transcript → {subject, mood, style,     │
+              │ palette, composition, medium, era}      │
+              │ encoder model, milliseconds, ~free      │
+              └───────────────┬─────────────────────────┘
+                              │ gate: did the idea MATERIALLY change?
+                              │ no → stop here, spend nothing
+                              ▼ yes
+        ┌─────────────────────┴──────────────────────┐
+        │                                            │
+   LANE A — cited                              LANE B — open
+   Cala entity resolution                      Wikimedia Commons
+   + knowledge/search                          + Openverse
+   → context[].origins[].document.url          → direct image results
+   → fetch those pages, extract og:image
+        │                                            │
+        └─────────────────────┬──────────────────────┘
+                              ▼
+              normalise · perceptual-hash dedupe · rank
+                              │
+                    WebSocket ▼  candidates stream to the grid
+                        ┌──────────────┐
+                        │  user pins   │
+                        └──────┬───────┘
+                               ▼ Generate
+              prompt synthesis (transcript + attributes
+              + pinned refs + visual direction)
+                               │
+                               ▼
+              fal — flux-pro/kontext/max/multi
+              pinned image URLs passed as image_urls,
+              so the pins genuinely condition the output
+                               │
+                               ▼
+              final image + transcript + the prompt
+```
+
+Two properties of this design matter more than any individual technology.
+
+**The distiller is a cost gate, not a feature.** Cala's free tier is 100 credits *per month*. A naive "query on every pause" loop exhausts it in seconds. GLiNER2 runs on every pause because it is an encoder model at $0.15/1M tokens, and only a material change in the distilled attributes is allowed to spend a Cala credit. That is what makes a continuous loop affordable, and it is why Pioneer is load-bearing rather than optional.
+
+**Pins are functional.** A pinned image is not a mood-board sticker that quietly gets summarised into an adjective. Its URL goes to fal as a real conditioning input. Unpin an image and the output visibly changes. If pins were decorative the product would be a demo; because they are wired to `image_urls`, it is a tool.
+
+## What Cala actually does here
+
+This needs stating plainly, because the naive version of this product is not buildable and the honest version is better.
+
+**Cala returns no images.** There is no `image`, `image_url`, `thumbnail`, `logo` or `media` field anywhere in its OpenAPI schema. Its own documentation positions it as the opposite of web search: *"Web search APIs crawl the open web and return URLs, scraped text, and HTML fragments… Cala is different. It's a verified entity graph."*
+
+What Cala does is decide **what you are talking about** and **which sources are authoritative about it**:
+
+1. **Entity resolution.** `GET /v1/entities?name=…` turns a messy spoken mention into a canonical typed entity with a stable UUID. Speech is ambiguous; this is real disambiguation, and it makes everything downstream precise instead of keyword soup.
+2. **Source discovery.** `POST /v1/knowledge/search` returns `context[].origins[].document.url` — real article pages on real publications, each paired with the publisher name and the evidence quote. We fetch those specific pages and extract `og:image`, `twitter:image` and lead images. **The reference images come from documents Cala selected and cited as evidence.**
+3. **Salience.** `explainability[]` tells us which facts actually carried the answer, so we illustrate the thing that matters rather than every noun in the transcript. This also throttles query volume, which we need anyway.
+
+So the honest claim, and the one the UI makes: *Cala identifies what you mean and which sources are credible; the references come from what it cites.* Every Lane A image carries its publisher and source document in the UI. That is something keyword image search structurally cannot offer.
+
+**Lane B is first-class, not a fallback.** Cala's coverage is finance, legal, healthcare, HR and agro. Most of what people say out loud when thinking visually is none of those. Wikimedia Commons and Openverse carry the general cultural and visual load — free, permissively licensed, no credit anxiety. Candidates are badged **cited** or **open** in the UI. Being explicit about which lane an image came from is what keeps the Cala integration honest and worth advertising.
 
 ## Shape of the repo
 
 ```
 glia/
 ├── apps/
-│   ├── web/                 # Vite + React 19 + TS — the workspace UI
-│   └── api/                 # FastAPI + Python 3.13 — the only thing holding secrets
+│   ├── web/                    # Vite + React 19 + TS — one screen, four phases
+│   └── api/                    # FastAPI — realtime session broker + discovery loop
 ├── packages/
-│   ├── ui/                  # shadcn-based primitives, Tailwind v4 preset
-│   ├── editor/              # BlockNote custom blocks (VerifiedFact, EntityCard, Media)
-│   ├── api-client/          # generated from the FastAPI OpenAPI schema
-│   └── tsconfig/            # shared TS + Biome config
+│   ├── ui/                     # shadcn primitives, Tailwind v4 preset
+│   ├── api-client/             # generated from the FastAPI OpenAPI schema
+│   └── tsconfig/               # shared TS + Biome config
 ├── infra/
-│   ├── docker-compose.yml   # postgres 17 + pgvector, redis 7
-│   └── Dockerfile.*         # api, web
+│   ├── docker-compose.yml      # postgres 17, redis 7
+│   └── Dockerfile.*
 ├── docs/
 └── .github/workflows/
 ```
 
-`pnpm-workspace.yaml` covers `apps/*` and `packages/*`. The Python app lives inside the same repo but is managed by `uv`, not pnpm — Turborepo shells out to `uv run` for its tasks. One repo, two package managers, one lockfile each. Aikido scans lockfiles in subfolders, so this shape is fully covered by one connected repository.
+`pnpm-workspace.yaml` covers `apps/*` and `packages/*`. The Python app lives in the same repo, managed by `uv`; Turborepo shells out to `uv run`. One repo, two package managers, one lockfile each — and Aikido scans lockfiles in subfolders, so a single connected repository covers both halves.
 
 ## Monorepo
 
-**pnpm 10 workspaces + Turborepo.**
+**pnpm 10 workspaces + Turborepo.** pnpm for the content-addressed store and, more importantly, the strict non-flat `node_modules` that prevents phantom dependencies — a correctness property, not a speed one. Turborepo for content-hash task caching, which on a one-day build with three people pushing constantly is the difference between a 4-second and a 90-second loop.
 
-pnpm because the content-addressed store makes installs fast and, more importantly, because its strict non-flat `node_modules` prevents phantom dependencies — a package can only import what it declares. That is a correctness property, not a speed one.
-
-Turborepo for task orchestration and content-hash caching. `turbo run build` skips anything whose inputs did not change. On a one-day build with 3 people pushing constantly, this is the difference between a 4-second and a 90-second feedback loop.
-
-*Rejected:* Nx (heavier, plugin-driven, more config than a one-day project can amortise). Bun workspaces (fast, but we need a boring toolchain today, and pnpm's lockfile is what Aikido SCA reads).
+*Rejected:* Nx (more config than a one-day project can amortise). Bun workspaces (fast, but pnpm's lockfile is what Aikido SCA reads).
 
 ## Frontend
 
-**Vite 7 + React 19 + TypeScript 5.x strict.**
+**Vite 7 + React 19 + TypeScript strict.**
 
-Vite for dev-server startup measured in milliseconds. If the build ever feels slow, switch the bundler in one line by aliasing `vite` to `rolldown-vite` — Rolldown is Vite's Rust bundler and is a drop-in for our usage. Do not do this on day one; do it only if builds actually hurt.
+Vite for millisecond dev-server startup. If builds ever hurt, alias `vite` to `rolldown-vite` — one line, Rust bundler, drop-in. Do not do this on day one.
 
-React 19 for the compiler (auto-memoisation, so we stop hand-writing `useMemo` in an editor that re-renders constantly), Actions, and `use()`. A block editor is the exact workload where the compiler earns its keep.
+React 19 for the compiler. This app re-renders a live-updating image grid against a streaming transcript; auto-memoisation is exactly the workload it was built for, and it saves us hand-writing `useMemo` under time pressure.
 
-**TanStack Router** for type-safe file-based routing — the route params and search params are typed end to end, which removes an entire class of runtime bugs we do not have time to debug. **TanStack Query v5** for all server state: caching, background refetch, optimistic updates, and request deduplication we would otherwise hand-roll.
+**No router.** Glia is one screen with four phases — `idle → listening → converging → generated`. That is a state machine, not a navigation graph. A discriminated union in Zustand covers it. Adding TanStack Router here would be ceremony.
 
-**Tailwind CSS v4** — the Oxide engine is Rust, CSS-first config via `@theme`, no `tailwind.config.js`, and incremental rebuilds are sub-millisecond. **shadcn/ui** on Radix primitives for accessible components we own the source of, rather than a dependency we fight.
+**Zustand** is the centre of the client. It holds the phase, the transcript buffer, the candidate pool, the pin set and the generation result. Everything else is derived. **TanStack Query** only for the few request/response calls (session bootstrap, history) — the live channel is a WebSocket, and pushing streamed data through Query is fighting the tool.
 
-**Zustand** for the small amount of genuinely client-side state (panel open, selection, command palette). No Redux. Server state is Query's job; document state is Yjs's job; Zustand covers what is left, which is little.
+**Motion** (framer-motion) is not decoration here, it is the product's feel. Images arriving, reflowing and settling as the idea sharpens is the thing a judge remembers. `layoutId` for shared-element transitions when a candidate becomes a pin, `AnimatePresence` for arrival and departure, staggered entry so a batch of eight images lands as a wave rather than a flash. Budget real time for this.
 
-**Biome** instead of ESLint + Prettier. One Rust binary, lint and format, ~20x faster, one config file. On a hackathon the value is that nobody argues about formatting and CI takes two seconds.
+**Tailwind CSS v4** — Rust Oxide engine, CSS-first `@theme` config, sub-millisecond rebuilds. **shadcn/ui** on Radix for accessible components we own the source of. **Biome** instead of ESLint + Prettier: one Rust binary, one config, nobody argues about formatting and CI takes two seconds.
 
-*Rejected:* Next.js. We do not need SSR or its server runtime — the backend is Python, so Next would be a second server doing nothing but proxying, and its build is slower. The one thing Next would have given us free is fal's `@fal-ai/server-proxy/nextjs` handler; we implement that 20-line proxy in FastAPI instead, which is where the key belongs anyway. *Rejected:* Remix/React Router 7 framework mode, same reason. *Rejected:* SvelteKit/Solid — faster, but we lose the BlockNote/TipTap ecosystem, which is the whole product surface.
+**Audio.** `getUserMedia` → `RTCPeerConnection` straight to OpenAI. The browser talks to OpenAI directly using a short-lived ephemeral token our backend mints; raw audio never touches our server. Lowest latency, smallest PII surface, and our API key never leaves the backend.
 
-## The Notion-like editor — the important choice
-
-**BlockNote**, which sits on **TipTap v3**, which sits on **ProseMirror**.
-
-ProseMirror is the correct document model: a schema-validated tree with transactional updates and a real position system. Every serious block editor (Notion, Linear, Coda) is built on something shaped like it. TipTap is the ergonomic layer over it. BlockNote is the Notion-shaped layer over TipTap — it ships block structure, the slash menu, drag handles, nested blocks, side menus and a formatting toolbar out of the box, and exposes a custom-block API.
-
-Building those affordances from raw TipTap costs a full day. We have seven hours. Take BlockNote, spend the saved time on the custom blocks that are actually our product:
-
-| Custom block | What it does |
-|---|---|
-| `VerifiedFact` | A claim plus its provenance chip. Click to expand the source panel: publisher, document, upstream endpoint, response hash, retrieval date. |
-| `EntityCard` | A Cala entity rendered as a live card — properties with per-field sources, relationships, numerical observations. |
-| `CitationChip` | Inline mark that links a text span to a `KnowBit` id from Cala's `context[]`. |
-| `GeneratedMedia` | A fal output (image/video/audio) with the exact model id, prompt and request id recorded alongside it. |
-| `UnverifiedClaim` | The honest one. Model asserted something Cala could not ground. Rendered with a warning treatment. This block is the demo's most persuasive moment. |
-
-*Rejected:* Plate (Slate-based — Slate's document model has known selection and normalisation sharp edges under collaborative editing). Lexical (excellent and fast, but its plugin ecosystem for Notion-shaped UX is thinner, so we would be building drag handles ourselves). Raw TipTap (right answer with two more days).
-
-**Persistence.** The document is a **Yjs** CRDT. Locally it syncs to IndexedDB via `y-indexeddb`, so the editor is instant and survives a refresh with no network. The server stores the Yjs update binary as a `bytea` column plus a derived JSON projection for search and for the AI to read. Multiplayer is a stretch goal: if there is time after freeze, drop in **Hocuspocus** (the TipTap team's y-websocket server) — but the CRDT choice means single-player today and multiplayer later is an additive change, not a rewrite. Note it does mean one Node process for the websocket if we get there; the Python API remains authoritative for everything else.
-
-**Never store HTML.** Store ProseMirror/Yjs JSON. HTML in a database is an XSS vector waiting for a careless render; a schema-validated node tree is not.
+*Rejected:* Next.js. The backend is Python, so Next would be a second server that only proxies, with a slower build and one more process holding secrets. *Rejected:* a canvas/WebGL grid — CSS grid with Motion is faster to build and looks better; reach for canvas only past a few hundred simultaneous images, which we will not have.
 
 ## Backend
 
 **Python 3.13 + FastAPI + uvicorn, managed by `uv`.**
 
-`uv` because it resolves and installs in a second or two, and because `uv.lock` is a real lockfile that Aikido's SCA scanner reads. `pyproject.toml` alone is not scannable — the lockfile is what gets us dependency coverage, which matters since dependency findings are the ones that can gate our CI on the free tier.
+`uv` resolves and installs in seconds, and `uv.lock` is a real lockfile that Aikido's SCA scanner reads. `pyproject.toml` alone is not scannable, and dependency findings are the only ones that can gate CI on Aikido's free tier — so the lockfile is a security requirement, not a preference.
 
-FastAPI for async-native I/O — this service is almost entirely fan-out to Cala, Pioneer and fal, so the concurrency model is the whole performance story — plus Pydantic v2 (Rust core) giving us validation and an OpenAPI schema for free. That schema generates `packages/api-client`, so the frontend's types cannot drift from the backend's.
+FastAPI because this service is almost entirely concurrent fan-out — one distiller call, one or two Cala calls, then eight to twenty parallel page fetches and image probes — so the async model *is* the performance story. Native WebSocket support carries the live channel. Pydantic v2 gives validation and an OpenAPI schema that generates `packages/api-client`, so frontend types cannot drift from backend reality.
 
-**SQLAlchemy 2.0 async + Alembic**, against **PostgreSQL 17 + pgvector**. One database. Documents, users, orgs, cached Cala responses and embeddings all live there — pgvector means no separate vector store to operate. **Redis 7** for rate-limit counters, response caching and the job queue.
+**PostgreSQL 17** for sessions, transcript turns, candidates, pins and generations. **Redis 7** for the candidate cache, the perceptual-hash dedupe set, rate limiting, the fal webhook → WebSocket pubsub bridge, and the **Cala credit ledger** (see below).
 
-**taskiq** (or `arq`) for background work: fal generations that outlive a request, Cala batch grounding, and re-verification sweeps. Not Celery — Celery's config surface and worker model cost more than they return here.
+**No task queue.** The discovery fan-out lives in `asyncio.TaskGroup` on the WebSocket connection, and fal's slow work is handled by its own queue plus a webhook. Adding taskiq or Celery would be a third moving part earning nothing in seven hours. If a job ever needs to outlive a connection, revisit.
 
-**httpx** with explicit timeouts and `tenacity` retries for every outbound call. **structlog** for JSON logs with a request id and, when applicable, the Entire session id — so a log line can be traced back to the prompt that caused the code that emitted it.
+**httpx** with hard timeouts and `tenacity` retries for every outbound call. **selectolax** for HTML parsing — a C-backed parser, roughly an order of magnitude faster than BeautifulSoup, and we are parsing twenty pages inside a live loop. **Pillow + imagehash** for perceptual dedupe. **structlog** JSON logs. **ruff** and **mypy --strict**.
 
-**ruff** (lint + format) and **mypy --strict**. Both are fast enough to run pre-commit.
+*Rejected:* Litestar (nice, smaller ecosystem). Django (weight, and the async story). Node backend (the brief says Python, and that is where the AI tooling lives).
 
-*Rejected:* Litestar (genuinely nice, smaller ecosystem, and FastAPI's docs advantage matters when three people are moving fast). Django (ORM and admin are great; the async story and the weight are not what we want). Node for the backend — the brief specifies Python, and Python is where the AI tooling lives anyway.
+## The technologies, and what each one actually does
 
-## AI layer
+| | Role | Why it and not something else |
+|---|---|---|
+| **OpenAI** | Live transcription (`gpt-live-transcribe`, ~$0.017/min) and prompt synthesis | The only realtime STT with true incremental deltas and browser WebRTC. Deltas are what make the screen feel alive; turn-level transcription would make it feel like a form. |
+| **Cala** | Entity resolution + cited-source discovery + salience | Nothing else turns a spoken mention into a canonical entity with authoritative sources attached. It is the reason our references carry publishers instead of being anonymous pixels. |
+| **Pioneer** (Fastino) | GLiNER2 structured extraction of visual attributes from speech; the cost gate | An encoder model returns typed attributes in milliseconds at $0.15/1M. Asking a frontier model to do this on every pause would be slower and ~100× the cost. This is the right tool, used for the right reason. |
+| **fal** | Final generation, conditioned on pinned references | `flux-pro/kontext/max/multi` accepts multiple `image_urls`, which is what makes pinning functional instead of theatrical. |
+| **Aikido** | Zen runtime firewall, CI gating, safe-chain, live security panel | We fetch arbitrary URLs discovered from the open web. That is a textbook SSRF surface and Zen is a real answer to it, not a sponsor logo. |
+| **Entire** | Every commit bound to the agent session that produced it | Same instinct as the product: keep the reasoning attached to the artefact. |
 
-Three providers with strictly separated jobs. This separation is the architectural argument, and it is what makes five partner integrations coherent rather than decorative.
+Six partner technologies. The rules require three.
 
-```
-                    ┌──────────────────────────────────────────┐
-   user prompt ───▶ │ 1. GLiGuard    injection / abuse screen   │
-                    │ 2. GLiNER2-PII redact spans → placeholders│
-                    │ 3. Cala        ground claims, get sources │
-                    │ 4. Pioneer     generate over grounded ctx │
-                    │ 5. rehydrate   restore PII placeholders   │
-                    │ 6. fal         media, if the block asks   │
-                    └──────────────────────────────────────────┘
-```
+## Cost model — read this before writing the loop
 
-**Cala is the ground truth.** Not a search tool bolted on — the retrieval step that runs *before* generation. `POST /v1/knowledge/search` returns `content` plus `explainability[]` (claim → supporting quote ids) plus `context[]` (quote → publisher URL + document URL). That structure maps one-to-one onto our `VerifiedFact` block, which is why the product design and the API design agree. For entity detail we call `POST /v1/entities/{id}`, which returns each property as `{value, sources[]}` where a source carries the **upstream endpoint plus a SHA-256 `response_hash`** — genuinely auditable, because you can re-fetch and compare. Two provenance shapes, two parsers; see `docs/PARTNERS.md`.
+| | Unit cost | Per 3-minute session |
+|---|---|---|
+| OpenAI `gpt-live-transcribe` | $0.017/min | ~$0.05 |
+| Pioneer GLiNER2 | $0.15/1M tokens | rounding error |
+| **Cala** | **1 credit per query** | **~5–15 credits** |
+| Wikimedia / Openverse | free | free |
+| fal `flux/schnell` | per output | cents |
 
-**Pioneer is the only egress to a language model.** One OpenAI-compatible base URL, `pioneer/auto` for routing, `claude-opus-5` when a task needs the ceiling. Because there is exactly one gateway, PII redaction and guardrails are enforced in exactly one place — a security property, not a convenience. Its encoder models do the guarding: `fastino/gliner2-privacy-filter-PII-multi` returns 42 PII labels with character spans, and `fastino/gliguard-LLMGuardrails-300M` classifies prompts before they cost anything.
+**Cala is the only scarce resource.** Free tier is **100 credits per month** — roughly three queries a day. The $50 Explore tier is 1,100 credits. Buy it; it is the cheapest risk to retire.
 
-**fal is media only.** Server-proxied, never called from the browser, queue + webhook for anything slow, Ed25519 signature verification on the webhook, `X-Fal-Store-IO: 0` so payloads are not retained.
+Controls, all mandatory:
 
-*Rejected:* calling OpenAI/Anthropic directly. It would work and we have credits, but it gives up the single-gateway property and the redaction chokepoint, and it drops a partner integration that is doing real work.
-
-## Security posture
-
-Full detail in `docs/SECURITY.md`. The stack-level decisions:
-
-- **Aikido Zen** (`aikido_zen`) is the **first import** in the FastAPI entrypoint, before anything else. Runtime blocking of SQLi, NoSQLi, command injection, path traversal and SSRF, plus per-route rate limiting and user identification.
-- **Aikido CI**: `AikidoSec/github-actions-workflow` gating on new critical dependency findings, plus dashboard PR checks.
-- **`@aikidosec/safe-chain`** wraps both `pnpm` and `uv` installs and blocks malicious packages before they touch disk. Free, tokenless, and it covers the one gap in Aikido's free tier (malware detection in dependencies is paid).
-- **Postgres row-level security** for tenant isolation, enforced in the database rather than in application `WHERE` clauses.
-- **The frontend holds no secrets.** Not the fal key, not the Cala key, not the Pioneer key. Every third-party call is proxied by FastAPI. This is why we did not want a Next.js BFF: fewer places a key can leak.
-
-## Provenance of the build itself
-
-**Entire** is enabled on the repo with `--agent claude-code`. Every commit gets an `Entire-Checkpoint` trailer linking it to the agent session, prompts and tool calls that produced it, stored as git refs in our own repository with five always-on redaction passes.
-
-This is not a checkbox. Our product's claim is that AI output should be traceable to its source. Entire makes that claim true of our own codebase, so the demo can end with `entire why apps/api/glia/grounding/cala.py:42` and show the prompt behind the code — the same accountability the product gives to documents, applied to itself. Judges notice when a submission's method matches its thesis.
+- **Distiller gate.** No Cala call unless the distilled attribute set changed materially against the last query. Cheap string/set diff on subject + medium + era.
+- **Debounce.** Minimum 8 seconds of new settled speech between queries, regardless of change.
+- **Cache.** Every Cala response stored in Postgres keyed by a hash of the query input, with the raw JSON kept for the source panel. Cache hits never bill.
+- **Ledger.** A Redis counter of credits spent, exposed in the dev HUD. If it climbs during idle, something is wrong and you find out in seconds instead of on stage.
+- **Pre-warm.** The demo runs against a warm cache. State this openly in the demo — it reads as engineering judgment, not a dodge.
 
 ## Deploy
 
-Docker Compose locally. For the demo: API on **Fly.io** or **Railway** (one container, Postgres + Redis alongside), web on **Vercel** or **Cloudflare Pages** as a static SPA build. Neither is load-bearing — pick whichever authenticates fastest at 17:00 and do not spend a minute more on it.
+Docker Compose locally. For the demo: API on Fly.io or Railway (one container plus Postgres and Redis), web on Vercel or Cloudflare Pages as a static SPA. Neither is load-bearing — pick whichever authenticates fastest at 17:00 and spend no more time on it.
+
+Two constraints the deploy must satisfy: **HTTPS**, because `getUserMedia` requires a secure context, and a **publicly reachable webhook URL** for fal.
 
 ## Version pins
 
-Pin exact versions in both lockfiles and commit them. On a hackathon, a transitive dependency shifting under you at 17:45 is the failure mode that ends runs. `pnpm install --frozen-lockfile` and `uv sync --frozen` in CI, always.
+Pin exact versions in both lockfiles and commit them. `pnpm install --frozen-lockfile` and `uv sync --frozen` in CI, always. A transitive dependency shifting at 17:45 is the failure mode that ends runs.

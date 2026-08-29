@@ -1,11 +1,41 @@
-.DS_Store
+# env
 .env
 .env.*
 !.env.example
 .private/
+
+# node
 node_modules/
 dist/
+.turbo/
 .next/
 .vercel/
+*.tsbuildinfo
+
+# python
+.venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# tooling
+.aikidotmp/
+.claude/worktrees/
+_to_delete/
+.entire/settings.local.json
+.entire/logs/
+.entire/tmp/
+.entire/metadata/
+.entire/current_session
+playwright-report/
+test-results/
 coverage/
 *.log
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
