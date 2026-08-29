@@ -50,7 +50,18 @@ Concurrency is bounded by a semaphore. A hostile page will not be allowed to ope
 
 Lane A candidates are displayed from their origin URLs. That is normal reference behaviour and keeps attribution intact, but it means our page requests third-party hosts from the user's browser. CSP `img-src` is scoped accordingly, and the referrer is stripped. We do **not** re-host Lane A images. Lane B images are permissively licensed and displayed with their licence and author.
 
-Pinned image URLs are passed to fal as generation references. Those images are third-party works used as visual reference for an original output. For a hackathon demo this is fine and it is what reference-conditioned models are for; a product shipping to customers would need a licensing position, and we say so rather than pretending otherwise.
+### Pinned references are re-hosted, not hotlinked to fal
+
+A pinned image is **not** handed to fal as an origin URL. Two things make that impossible: a grid tile's display URL is our own `/api/image` proxy on localhost, which fal cannot reach at all, and fal's fetcher sends a blank User-Agent that `upload.wikimedia.org` answers with 403.
+
+So the bytes go through us. `generation/references.py` reads the pin's `origin_image_url`, fetches it through the fetcher above — same allowlist, same resolved-address check, same redirect refusal, same byte cap, no relaxed path — and uploads it to fal's storage. What the model receives is a URL on fal's own CDN.
+
+Two consequences worth stating:
+
+- The one new outbound request to a remote-supplied URL is the `PUT` to fal's `upload_url`. It cannot use the host allowlist — fal chooses that host — so it gets the rest: https only, plus the same resolved-address check via `fetch.resolves_publicly()`, which is now the single definition of "not public" for every outbound request built from a URL we did not hardcode. "Nothing is read back, so it is not SSRF" is **not** the argument and should not be used as one: a blind write to an internal endpoint is a real primitive, and the guard does not depend on the direction of the data.
+- A reference that cannot be fetched or uploaded is dropped, never repaired by falling back to the display URL. The generation proceeds without it and the response names the pin.
+
+Those images are third-party works used as visual reference for an original output, and re-hosting them on fal's storage is a copy we did not previously make. For a hackathon demo this is fine and it is what reference-conditioned models are for; a product shipping to customers would need a licensing position, and we say so rather than pretending otherwise.
 
 ## Runtime — Aikido Zen
 

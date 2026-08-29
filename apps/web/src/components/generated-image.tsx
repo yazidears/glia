@@ -8,8 +8,12 @@ import type { GeneratedImage as GeneratedImageValue } from '@/stores/session'
  * understood you to mean*, and here is the thing it produced.
  *
  * `references` says how many pins fal actually received as image conditioning. Zero is the
- * normal case today, because the board's stickers have no public URL — and it is stated rather
- * than hidden, because the alternative is implying a conditioning that did not happen.
+ * normal case for a board of stickers, which have no URL at all — and it is stated rather than
+ * hidden, because the alternative is implying a conditioning that did not happen.
+ *
+ * A pin the server could not fetch or re-host is dropped rather than fatal, so the image above
+ * is real and simply had less to go on. Saying so is the whole point: the user is the only one
+ * who can act on it, and they cannot act on a number that quietly came back one short.
  */
 
 interface GeneratedImageProps {
@@ -31,6 +35,14 @@ export function GeneratedImage({ value }: GeneratedImageProps) {
             {value.referenceCount === 1 ? 'reference image' : 'reference images'}
           </span>
         </p>
+        {value.unavailableReferences.length > 0 && (
+          <p className="generated-dropped">
+            {value.unavailableReferences.length === 1
+              ? '1 pin'
+              : `${value.unavailableReferences.length} pins`}{' '}
+            could not be fetched and did not condition this image.
+          </p>
+        )}
       </figcaption>
     </figure>
   )
