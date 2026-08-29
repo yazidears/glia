@@ -19,6 +19,9 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': 'http://127.0.0.1:8000',
+      // The capability check reads `/health`, which lives at the API root rather than under
+      // `/api`, so it needs its own hop in development.
+      '/health': 'http://127.0.0.1:8000',
       '/ws': {
         target: 'ws://127.0.0.1:8000',
         ws: true,

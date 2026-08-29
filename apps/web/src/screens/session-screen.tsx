@@ -1,5 +1,6 @@
 import type { ConnectionState } from '@glia/api-client'
 import { Mic } from 'lucide-react'
+import { SettingsDialog } from '@/components/settings-dialog'
 import { TranscriptList } from '@/components/transcript-list'
 import { Waveform } from '@/components/waveform'
 import { Workpane } from '@/components/workpane'
@@ -42,6 +43,8 @@ export function SessionScreen() {
       <a className="glia-wordmark" href="/" aria-label="Glia home">
         glia
       </a>
+
+      <SettingsDialog />
 
       <section className="session-hero" data-hidden={isSession} aria-hidden={isSession}>
         <p>Speak until you see it.</p>
