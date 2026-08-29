@@ -25,8 +25,8 @@ interface SessionState {
   /** State and stream move together — a granted state without a stream is not representable. */
   setMic: (micState: MicState, stream: MediaStream | null) => void
   /**
-   * Speech has arrived. One-way: stopping the microphone stops listening but must never throw the
-   * user back to an empty hero, because by then there is a transcript on screen to destroy.
+   * The microphone has activated. One-way: stopping it must never throw the user back to the hero,
+   * because the transcript workspace is now the active surface even before the first word arrives.
    */
   startSession: () => void
   connectionState: ConnectionState
@@ -43,10 +43,9 @@ interface SessionState {
 }
 
 /**
- * Words on screen mean the session has begun, whichever signal noticed first. The level detector
- * is the fast path — it trips about 250ms into the first sentence, well before any text arrives —
- * but it is not the only one: when the realtime provider is unconfigured the transcript comes from
- * a fixture that nobody had to speak for, and a transcript with no layout to land in is invisible.
+ * Words on screen also mean the session has begun. Microphone permission is the primary path, but
+ * a transcript may still arrive from a fixture or restored provider state without a live stream;
+ * that text must never remain hidden behind the hero.
  */
 function phaseAfter(state: SessionState, transcript: string): SessionPhase {
   return state.phase === 'hero' && transcript.trim() ? 'session' : state.phase

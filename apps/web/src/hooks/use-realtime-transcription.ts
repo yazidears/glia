@@ -7,11 +7,17 @@ import {
   type RealtimeTokenResponse,
 } from '@glia/api-client'
 import { useEffect } from 'react'
+import { type AudioLevelHandle, primeAudioContext } from '@/hooks/use-audio-level'
 import { useSessionStore } from '@/stores/session'
 import { useSettings } from '@/stores/settings'
 
 const REQUEST_TIMEOUT_MS = 8_000
 const CLIENT_ID_KEY = 'glia:client-id:v1'
+const VOICE_ENTER_RMS = 0.015
+const VOICE_EXIT_RMS = 0.008
+const COMMIT_SILENCE_MS = 650
+const PCM_SAMPLE_RATE = 24_000
+const MAX_DATA_CHANNEL_BUFFER_BYTES = 512_000
 const FIXTURE_TRANSCRIPT =
   'A lonely cobalt observatory above the Mediterranean, cinematic, cold, and softly lit.'
 
@@ -179,7 +185,132 @@ function parseOpenAIEvent(raw: string): UnknownRecord | null {
   }
 }
 
-export function useRealtimeTranscription(): void {
+function encodePcm24k(input: Float32Array, inputSampleRate: number): string {
+  const ratio = inputSampleRate / PCM_SAMPLE_RATE
+  const outputLength = Math.max(1, Math.floor(input.length / ratio))
+  const bytes = new Uint8Array(outputLength * 2)
+  const view = new DataView(bytes.buffer)
+
+  for (let outputIndex = 0; outputIndex < outputLength; outputIndex += 1) {
+    const start = Math.floor(outputIndex * ratio)
+    const end = Math.max(start + 1, Math.min(input.length, Math.floor((outputIndex + 1) * ratio)))
+    let sum = 0
+    for (let inputIndex = start; inputIndex < end; inputIndex += 1) {
+      sum += input[inputIndex] ?? 0
+    }
+    const sample = Math.max(-1, Math.min(1, sum / (end - start)))
+    view.setInt16(outputIndex * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true)
+  }
+
+  let binary = ''
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index] ?? 0)
+  }
+  return window.btoa(binary)
+}
+
+function startPcmStream(
+  stream: MediaStream,
+  channel: RTCDataChannel,
+  signal: AbortSignal,
+): () => void {
+  const context = primeAudioContext()
+  if (!context) {
+    return () => undefined
+  }
+
+  const source = context.createMediaStreamSource(stream)
+  // ScriptProcessor is deliberately used for this one-day Safari demo fallback: it is available
+  // synchronously in the existing audio context, while AudioWorklet would require another public
+  // module and an asynchronous load after the microphone gesture.
+  const processor = context.createScriptProcessor(4096, 1, 1)
+  const silentSink = context.createGain()
+  silentSink.gain.value = 0
+
+  processor.addEventListener('audioprocess', (event) => {
+    event.outputBuffer.getChannelData(0).fill(0)
+    if (
+      signal.aborted ||
+      channel.readyState !== 'open' ||
+      channel.bufferedAmount >= MAX_DATA_CHANNEL_BUFFER_BYTES
+    ) {
+      return
+    }
+    channel.send(
+      JSON.stringify({
+        type: 'input_audio_buffer.append',
+        audio: encodePcm24k(event.inputBuffer.getChannelData(0), context.sampleRate),
+      }),
+    )
+  })
+
+  source.connect(processor)
+  processor.connect(silentSink)
+  silentSink.connect(context.destination)
+
+  return () => {
+    processor.disconnect()
+    source.disconnect()
+    silentSink.disconnect()
+  }
+}
+
+function startManualCommitLoop(
+  audio: AudioLevelHandle,
+  commit: () => void,
+  signal: AbortSignal,
+): () => void {
+  let analyser: AnalyserNode | null = null
+  let samples = new Float32Array(0)
+  let frame: number | null = null
+  let speaking = false
+  let silentSince: number | null = null
+
+  const unsubscribe = audio.subscribe((next) => {
+    analyser = next
+    samples = next ? new Float32Array(next.fftSize) : new Float32Array(0)
+  })
+
+  const detectPause = (now: number): void => {
+    if (signal.aborted) {
+      return
+    }
+    if (analyser && samples.length > 0) {
+      analyser.getFloatTimeDomainData(samples)
+      let sumOfSquares = 0
+      for (let index = 0; index < samples.length; index += 1) {
+        const sample = samples[index] ?? 0
+        sumOfSquares += sample * sample
+      }
+      const rms = Math.sqrt(sumOfSquares / samples.length)
+
+      if (!speaking && rms >= VOICE_ENTER_RMS) {
+        speaking = true
+        silentSince = null
+      } else if (speaking && rms <= VOICE_EXIT_RMS) {
+        silentSince ??= now
+        if (now - silentSince >= COMMIT_SILENCE_MS) {
+          speaking = false
+          silentSince = null
+          commit()
+        }
+      } else if (speaking) {
+        silentSince = null
+      }
+    }
+    frame = requestAnimationFrame(detectPause)
+  }
+
+  frame = requestAnimationFrame(detectPause)
+  return () => {
+    unsubscribe()
+    if (frame !== null) {
+      cancelAnimationFrame(frame)
+    }
+  }
+}
+
+export function useRealtimeTranscription(audio: AudioLevelHandle): void {
   const stream = useSessionStore((state) => state.stream)
   const setConnection = useSessionStore((state) => state.setConnection)
   const setTranscriptState = useSessionStore((state) => state.setTranscriptState)
@@ -195,6 +326,8 @@ export function useRealtimeTranscription(): void {
     const peer = new RTCPeerConnection()
     const events = peer.createDataChannel('oai-events')
     let backend: WebSocket | null = null
+    let stopPcmStream: (() => void) | null = null
+    let stopManualCommit: (() => void) | null = null
     let providerTranscriptionSeen = false
     const existingSegments = useSessionStore.getState().transcriptSegments
     let nextItemOrder = existingSegments.length
@@ -308,7 +441,19 @@ export function useRealtimeTranscription(): void {
         return
       }
       const message = parseOpenAIEvent(event.data)
-      if (!message || typeof message.type !== 'string' || typeof message.item_id !== 'string') {
+      if (!message || typeof message.type !== 'string') {
+        return
+      }
+      if (message.type === 'error') {
+        const providerError = isRecord(message.error) ? message.error : null
+        const detail =
+          providerError && typeof providerError.message === 'string'
+            ? providerError.message
+            : 'OpenAI rejected the live transcription session.'
+        setConnection('error', detail)
+        return
+      }
+      if (typeof message.item_id !== 'string') {
         return
       }
       const providerEventId =
@@ -353,7 +498,18 @@ export function useRealtimeTranscription(): void {
         })
       }
     })
-    events.addEventListener('open', () => setConnection('connected'))
+    events.addEventListener('open', () => {
+      // gpt-live-transcribe rejects server and semantic VAD, and its transcription buffer is not
+      // populated by Safari's RTP track. Append explicit 24 kHz PCM over the same data channel,
+      // then commit only after the local analyser has observed a real phrase and pause.
+      stopPcmStream = startPcmStream(stream, events, controller.signal)
+      stopManualCommit = startManualCommitLoop(
+        audio,
+        () => events.send(JSON.stringify({ type: 'input_audio_buffer.commit' })),
+        controller.signal,
+      )
+      setConnection('connected')
+    })
     events.addEventListener('error', () =>
       setConnection('error', 'The live transcription channel failed.'),
     )
@@ -364,7 +520,9 @@ export function useRealtimeTranscription(): void {
     })
 
     for (const track of stream.getAudioTracks()) {
-      peer.addTrack(track, stream)
+      // Transcription sessions never send audio back. Declaring the media section as send-only is
+      // important in Safari and avoids negotiating a receive path the provider cannot fulfil.
+      peer.addTransceiver(track, { direction: 'sendonly', streams: [stream] })
     }
 
     async function connect(): Promise<void> {
@@ -421,9 +579,11 @@ export function useRealtimeTranscription(): void {
 
     return () => {
       controller.abort()
+      stopPcmStream?.()
+      stopManualCommit?.()
       events.close()
       peer.close()
       backend?.close()
     }
-  }, [setConnection, setIntent, setTranscriptState, stream])
+  }, [audio, setConnection, setIntent, setTranscriptState, stream])
 }

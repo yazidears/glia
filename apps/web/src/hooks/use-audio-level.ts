@@ -76,8 +76,8 @@ export async function closeAudioContext(): Promise<void> {
  *
  * Per-frame values never reach React or Zustand. A 60fps `setState` would rerender the whole
  * screen sixty times a second; consumers read the analyser directly inside their own animation
- * frame instead. The only thing that ever crosses into React state is the one-shot "speech has
- * arrived" transition, and that fires at most once per session.
+ * frame instead. The detector remains a fallback for restored or externally supplied streams;
+ * the normal permission flow moves into the session as soon as the microphone is granted.
  */
 export function useAudioLevel(): AudioLevelHandle {
   const stream = useSessionStore((state) => state.stream)
@@ -112,12 +112,31 @@ export function useAudioLevel(): AudioLevelHandle {
 
     const source = context.createMediaStreamSource(stream)
     const analyser = context.createAnalyser()
+    const silentSink = context.createGain()
     analyser.fftSize = FFT_SIZE
     analyser.smoothingTimeConstant = SMOOTHING_TIME_CONSTANT
-    // Deliberately not connected to `context.destination`: routing the microphone to the speakers
-    // would put the room into a feedback loop.
+    // Safari may stop pulling an unconnected Web Audio graph. Keep it live through a zero-gain
+    // sink: the analyser receives real samples, while no microphone audio reaches the speakers.
+    silentSink.gain.value = 0
     source.connect(analyser)
+    analyser.connect(silentSink)
+    silentSink.connect(context.destination)
     publish(analyser)
+
+    // Safari suspends Web Audio when a tab spends time in the background, even though the
+    // MediaStream track can remain live. Resume the already-authorised context when Glia becomes
+    // visible again so the button cannot say Listening while its analyser is frozen.
+    const resumeWhenVisible = (): void => {
+      if (
+        document.visibilityState === 'visible' &&
+        context.state !== 'running' &&
+        context.state !== 'closed'
+      ) {
+        void context.resume().catch(() => undefined)
+      }
+    }
+    document.addEventListener('visibilitychange', resumeWhenVisible)
+    window.addEventListener('pageshow', resumeWhenVisible)
 
     let frame: number | null = null
 
@@ -161,8 +180,11 @@ export function useAudioLevel(): AudioLevelHandle {
         cancelAnimationFrame(frame)
       }
       publish(null)
+      document.removeEventListener('visibilitychange', resumeWhenVisible)
+      window.removeEventListener('pageshow', resumeWhenVisible)
       source.disconnect()
       analyser.disconnect()
+      silentSink.disconnect()
     }
   }, [stream, publish])
 

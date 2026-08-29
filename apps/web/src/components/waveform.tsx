@@ -13,21 +13,16 @@ const VARIANTS = {
 
 export type WaveformVariant = keyof typeof VARIANTS
 
-/** Speech sits around 0.05–0.25 RMS after the browser's gain control, so this fills the box. */
-const AMPLITUDE_GAIN = 3.2
+/** Safari can expose a fairly quiet post-AGC signal, so amplify it into a legible docked meter. */
+const AMPLITUDE_GAIN = 9
 /** Per-frame approach rate. Low enough to stop the bars strobing, high enough to feel immediate. */
 const APPROACH = 0.35
 
 interface WaveformProps {
   handle: AudioLevelHandle
   variant: WaveformVariant
+  active: boolean
   className?: string
-}
-
-function readColor(canvas: HTMLCanvasElement): string {
-  // The canvas sets no colour of its own, so this resolves to the inherited `currentColor` and
-  // follows the light/dark foreground without the component knowing which one is active.
-  return window.getComputedStyle(canvas).color
 }
 
 /**
@@ -39,7 +34,7 @@ function readColor(canvas: HTMLCanvasElement): string {
  *
  * The loop never touches React. It reads the analyser, tweens its own bar levels and paints.
  */
-function WaveformCanvas({ handle, variant, className }: WaveformProps) {
+function WaveformCanvas({ handle, variant, active, className }: WaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const { bars: barCount, className: sizeClassName } = VARIANTS[variant]
 
@@ -56,7 +51,9 @@ function WaveformCanvas({ handle, variant, className }: WaveformProps) {
 
     let analyser: AnalyserNode | null = null
     let samples = new Uint8Array(0)
-    let color = readColor(canvas)
+    // Canvas paint does not follow later CSS `color` transitions. Keep the drawing colour tied to
+    // microphone state explicitly so the meter becomes white the instant the pill turns black.
+    const color = active ? '#ffffff' : '#111111'
     let frame: number | null = null
     const levels = new Float32Array(barCount)
 
@@ -103,7 +100,7 @@ function WaveformCanvas({ handle, variant, className }: WaveformProps) {
         levels[bar] = level
 
         const half = Math.max(restHalf, level * maxHalf)
-        context.globalAlpha = 0.3 + 0.7 * Math.min(1, level * 2)
+        context.globalAlpha = 0.55 + 0.45 * Math.min(1, level * 2)
         context.beginPath()
         context.roundRect(
           bar * slot + (slot - barWidth) / 2,
@@ -131,7 +128,6 @@ function WaveformCanvas({ handle, variant, className }: WaveformProps) {
     }
 
     const repaintWhenIdle = (): void => {
-      color = readColor(canvas)
       if (frame === null) {
         paint()
       }
@@ -156,16 +152,12 @@ function WaveformCanvas({ handle, variant, className }: WaveformProps) {
     const resizeObserver = new ResizeObserver(repaintWhenIdle)
     resizeObserver.observe(canvas)
 
-    const colorScheme = window.matchMedia('(prefers-color-scheme: dark)')
-    colorScheme.addEventListener('change', repaintWhenIdle)
-
     return () => {
       stop()
       unsubscribe()
       resizeObserver.disconnect()
-      colorScheme.removeEventListener('change', repaintWhenIdle)
     }
-  }, [handle, barCount])
+  }, [handle, barCount, active])
 
   return <canvas ref={canvasRef} aria-hidden className={cn('block', sizeClassName, className)} />
 }

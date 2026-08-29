@@ -10,6 +10,8 @@ export function TranscriptList() {
   const transcript = useSessionStore((state) => state.transcript)
   const transcriptSegments = useSessionStore((state) => state.transcriptSegments)
   const processedWordCount = useSessionStore((state) => state.processedWordCount)
+  const connectionState = useSessionStore((state) => state.connectionState)
+  const connectionError = useSessionStore((state) => state.connectionError)
   const transcriptWords = [...transcript.matchAll(/\S+\s*/g)].map((match) => ({
     text: match[0],
     offset: match.index,
@@ -31,6 +33,10 @@ export function TranscriptList() {
               {word.text}
             </span>
           ))}
+        </p>
+      ) : connectionState === 'error' ? (
+        <p role="alert" className="max-w-md text-lg font-medium leading-snug text-red-700">
+          {connectionError ?? 'Live transcription could not start.'}
         </p>
       ) : (
         <p className="flex items-baseline gap-2 text-2xl font-medium tracking-[-0.04em] text-neutral-500">

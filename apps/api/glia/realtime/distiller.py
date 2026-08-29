@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Protocol, cast
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from glia.config import Settings
 from glia.contracts import IntentChangeReason, IntentSource, VisualIntent
@@ -82,22 +82,40 @@ class FixtureIntentDistiller:
         )
 
 
+class _PioneerTextMatch(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    text: str
+    confidence: float | None = None
+
+
+type _PioneerField = (
+    str | _PioneerTextMatch | list[str | _PioneerTextMatch] | None
+)
+
+
 class _PioneerVisualDirection(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    subject: str = ""
-    mood: list[str] = Field(default_factory=list)
-    style: list[str] = Field(default_factory=list)
-    palette: list[str] = Field(default_factory=list)
-    composition: str = ""
-    medium: str = ""
-    era: str = ""
+    subject: _PioneerField = None
+    mood: _PioneerField = None
+    style: _PioneerField = None
+    palette: _PioneerField = None
+    composition: _PioneerField = None
+    medium: _PioneerField = None
+    era: _PioneerField = None
+
+
+class _PioneerData(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    visual_direction: list[_PioneerVisualDirection]
 
 
 class _PioneerResult(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    visual_direction: list[_PioneerVisualDirection]
+    data: _PioneerData
 
 
 class _PioneerEnvelope(BaseModel):
@@ -141,19 +159,19 @@ class PioneerIntentDistiller:
         body = await self._request(transcript)
         try:
             envelope = _PioneerEnvelope.model_validate(body)
-            direction = envelope.result.visual_direction[0]
+            direction = envelope.result.data.visual_direction[0]
         except (ValidationError, IndexError) as error:
             raise DistillationUnavailable("Pioneer returned an unsupported result shape") from error
 
         result = DistillationResult(
             intent=VisualIntent(
-                subject=direction.subject.strip(),
-                moods=_clean_values(direction.mood),
-                styles=_clean_values(direction.style),
-                palette=_clean_values(direction.palette),
-                composition=direction.composition.strip(),
-                medium=direction.medium.strip().lower(),
-                era=direction.era.strip(),
+                subject=_first_value(direction.subject),
+                moods=_field_values(direction.mood),
+                styles=_field_values(direction.style),
+                palette=_field_values(direction.palette),
+                composition=_first_value(direction.composition),
+                medium=_first_value(direction.medium).lower(),
+                era=_first_value(direction.era),
             ),
             source="pioneer",
         )
@@ -254,6 +272,20 @@ def build_intent_distiller(settings: Settings) -> IntentDistiller:
         max_retries=settings.pioneer_max_retries,
         threshold=settings.pioneer_inference_threshold,
     )
+
+
+def _field_values(value: _PioneerField) -> list[str]:
+    if value is None:
+        return []
+    values = value if isinstance(value, list) else [value]
+    return _clean_values(
+        [item.text if isinstance(item, _PioneerTextMatch) else item for item in values]
+    )
+
+
+def _first_value(value: _PioneerField) -> str:
+    values = _field_values(value)
+    return values[0] if values else ""
 
 
 def _clean_values(values: list[str]) -> list[str]:

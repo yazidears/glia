@@ -316,7 +316,7 @@ GLiNER2's `schema.structures` is built for exactly this: pull typed fields out o
 ```json
 POST /inference
 {
-  "model_id": "fastino/gliner2-large-v1",
+  "model_id": "fastino/gliner2-multi-v1",
   "text": "<the settled transcript window>",
   "schema": {
     "structures": [{
@@ -342,7 +342,7 @@ The `entities` block does double duty: those spans are the candidate names we fe
 
 `schema` also accepts `classifications` (`[{task, labels[]}]`) and `relations`. `text` accepts a string **or an array** for batching. Response is a discriminated union on `type`: encoder → `{inference_id, result, model_id, latency_ms, token_usage, model_used}`; decoder → `{inference_id, completion, reasoning_trace, …}`.
 
-**Spike this before building on it.** Pioneer documents `result` only as *"shape depends on the schema and task"* and publishes **no example response body anywhere**. Print the real response, pin the parser, then write the gate. Fifteen minutes now saves an hour at 16:00. The nearest documented evidence for entity shape is `{"text", "label", "start", "end"}` per entity — strongly implied, not confirmed.
+**Observed spike result (29 Aug 2026):** encoder output nests the requested structure at `result.data.visual_direction`. Each populated field is `{ "text": "…", "confidence": 0.0–1.0 }`, a repeated field may be a list of those matches, and an absent field is `null`. Entities are grouped by label at `result.data.entities`. The parser and its fixture are pinned to that live response instead of the previously assumed direct-string shape.
 
 ### The gate
 
@@ -363,7 +363,7 @@ Otherwise: update the UI from local state and spend nothing. Log the gate decisi
 | Encoders (trainable) | `fastino/gliner2-base-v1`, `fastino/gliner2-large-v1`, `fastino/gliner2-multi-v1`, `fastino/gliner2-multi-large-v1` |
 | Encoders (inference only) | `fastino/gliguard-LLMGuardrails-300M`, `fastino/gliner2-privacy-filter-PII-multi`, `fastino/gliguard-PII-multi` |
 
-Use `gliner2-large-v1` for quality, `multi-*` if the demo may be in Spanish or Catalan — worth considering in Barcelona.
+Glia uses `gliner2-multi-v1`: it handled Catalan in the live spike while the larger multilingual deployment timed out waiting for provider capacity. Use `gliner2-large-v1` for English quality only when its latency is measured and acceptable.
 
 ### Drop-in usage
 
