@@ -24,6 +24,7 @@ from glia.contracts import (
 )
 from glia.discovery.query import build_preview_queries, build_queries
 from glia.discovery.service import DiscoveryService
+from glia.discovery.subject import refuse_subject
 from glia.realtime.distiller import (
     DiscoveryGate,
     DistillationResult,
@@ -62,6 +63,7 @@ class RealtimeSocketSession:
         gate_jaccard_threshold: float = 0.4,
         discovery: DiscoveryService | None = None,
         discovery_debounce_ms: int = 600,
+        min_subject_confidence: float = 0.0,
     ) -> None:
         self._websocket = websocket
         self._debounce_seconds = debounce_ms / 1_000
@@ -80,6 +82,7 @@ class RealtimeSocketSession:
         self._pending_preview_discovery: asyncio.Task[None] | None = None
         self._preview_signature = ""
         self._pending_discovery: asyncio.Task[None] | None = None
+        self._min_subject_confidence = min_subject_confidence
         self._send_lock = asyncio.Lock()
         self._candidate_ids_by_revision: dict[int, set[str]] = {}
         self._session_id = str(uuid4())
@@ -195,6 +198,7 @@ class RealtimeSocketSession:
                         self._projector.project(projection_text),
                     ),
                     source="pioneer",
+                    subject_confidence=distilled.subject_confidence,
                 )
             gate = self._gate.evaluate(distilled.intent)
         else:
@@ -220,7 +224,11 @@ class RealtimeSocketSession:
             # Fastino intentionally sees only the active turn, but OpenAI needs the complete
             # conversation to understand the company, product and design decisions accumulated
             # so far. The current intent remains the explicit visual focus for discovery.
-            self._schedule_discovery(transcript, distilled.intent)
+            self._schedule_discovery(
+                transcript,
+                distilled.intent,
+                confidence=distilled.subject_confidence,
+            )
         elif not stable:
             self._schedule_preview_discovery(distilled.intent)
 
@@ -247,6 +255,9 @@ class RealtimeSocketSession:
         finished the sentence, but it can never reach Cala or spend a credit. The settled path
         later replaces it with the refined Fastino/OpenAI/Cala result.
         """
+        # Interim speech can search the free lanes, but filler is still not a subject.
+        if refuse_subject(intent.subject) is not None:
+            return
         queries = build_preview_queries(intent)
         signature = "\x1f".join(queries)
         if self._discovery is None or not queries or signature == self._preview_signature:
@@ -276,8 +287,25 @@ class RealtimeSocketSession:
 
         self._pending_preview_discovery = asyncio.create_task(preview_discovery())
 
-    def _schedule_discovery(self, transcript: str, intent: VisualIntent) -> None:
+    def _schedule_discovery(
+        self,
+        transcript: str,
+        intent: VisualIntent,
+        confidence: float | None = None,
+    ) -> None:
         """Search Fastino's direction now, then refine it with OpenAI in parallel."""
+        refusal = refuse_subject(
+            intent.subject,
+            confidence=confidence,
+            min_confidence=self._min_subject_confidence,
+        )
+        if refusal is not None:
+            logger.info(
+                "discovery.subject_refused",
+                session_id=self._session_id,
+                reason=refusal.reason,
+            )
+            return
         base_queries = build_queries(intent)
         if not base_queries:
             return
@@ -299,6 +327,7 @@ class RealtimeSocketSession:
             # completion perceptibly later. The free open-preview lane is already filling the UI.
             await asyncio.sleep(min(self._discovery_debounce_seconds, 0.1))
             try:
+
                 async def refine_and_discover() -> None:
                     try:
                         ideas = await synthesizer.synthesize(transcript, intent)

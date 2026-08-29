@@ -7,9 +7,9 @@ import { create } from 'zustand'
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
 
 /**
- * What the user wants back from a session. `text` is the whole product today: Cala returns no
- * images and the candidate pipeline does not exist, so the other two modes are offered only when
- * the server says it can honour them.
+ * What the user wants back from a session. The image lanes are live, so `images` is a real
+ * mode rather than a promise — `/health` still reports whether this server can honour it,
+ * and a server with every lane down is the one case where images cannot arrive.
  */
 export type OutputMode = 'text' | 'images' | 'both'
 
@@ -42,17 +42,24 @@ interface SettingsActions {
 export type SettingsState = SettingsValues & SettingsActions
 
 export const DEFAULT_SETTINGS: SettingsValues = {
-  // `text` until the image lane exists. A default that promised images would be a default that
-  // silently fails.
-  output: 'text',
+  // The grid is the product. Both open-corpus lanes answer in well under a second, so the
+  // default that used to promise nothing now promises what the app actually does.
+  output: 'images',
   waveform: true,
   liveDiscovery: true,
   language: DEFAULT_EXPECTED_LANGUAGE,
   showLedger: false,
 }
 
-/** One versioned key. Bumping the suffix retires a shape rather than migrating it. */
-const STORAGE_KEY = 'glia:settings:v1'
+/**
+ * One versioned key. Bumping the suffix retires a shape rather than migrating it.
+ *
+ * v2 exists for exactly one reason: `output` defaulted to `text` while the image lanes were
+ * dead, and everyone who opened the app in that window has `text` written into their
+ * `localStorage`. Migrating the value would be guessing at a preference nobody expressed;
+ * retiring the key hands them the new default and lets them choose again.
+ */
+const STORAGE_KEY = 'glia:settings:v2'
 
 /**
  * `localStorage` is not a given: a private window, blocked site data or a storage quota all throw
@@ -131,7 +138,7 @@ export const useSettings = create<SettingsState>()(
     }),
     {
       name: STORAGE_KEY,
-      version: 1,
+      version: 2,
       storage: createJSONStorage(createGuardedStorage),
       partialize: ({ output, waveform, liveDiscovery, language, showLedger }): SettingsValues => ({
         output,

@@ -12,13 +12,24 @@ export interface VisualIntent {
 
 export type IntentSource = 'fixture' | 'local' | 'pioneer'
 export type IdeaSource = 'local' | 'openai'
-export type IntentChangeReason = 'initial' | 'subject' | 'medium' | 'era' | 'visual_attributes'
+
+/**
+ * Mirrors of `Candidate`, `CandidatesBatch` and `LedgerUpdated` in
+ * `apps/api/glia/contracts.py`.
+ *
+ * Hand-written on purpose: these travel over the WebSocket, which is not in the OpenAPI
+ * document, so `pnpm gen:api` cannot produce them and will not notice if they drift.
+ * Keep the field lists in step with `contracts.py` — the parsers below are the only
+ * thing standing between a changed server shape and a broken grid.
+ */
 export type CandidateLane = 'cited' | 'open'
 
 export interface Candidate {
   id: string
   lane: CandidateLane
+  /** Already routed through the API's `/api/image` proxy. Render it verbatim. */
   image_url: string
+  /** Public origin file used by the backend as a fal conditioning reference. */
   origin_image_url: string | null
   source_url: string
   publisher: string | null
@@ -27,10 +38,26 @@ export interface Candidate {
   licence: string | null
   entity_name: string | null
   entity_type: string | null
+  /** Intrinsic dimensions, so a tile can reserve its aspect box before the image loads. */
   width: number | null
   height: number | null
   score: number
 }
+
+export interface CandidatesBatch {
+  type: 'candidates.batch'
+  revision: number
+  candidates: Candidate[]
+}
+
+export interface LedgerUpdated {
+  type: 'ledger.updated'
+  cala_queries: number
+  references: number
+  cited: number
+}
+
+export type IntentChangeReason = 'initial' | 'subject' | 'medium' | 'era' | 'visual_attributes'
 
 export interface TranscriptAccepted {
   type: 'transcript.accepted'
@@ -50,25 +77,12 @@ export interface IntentUpdated {
   change_reasons: IntentChangeReason[]
 }
 
-export interface CandidatesBatch {
-  type: 'candidates.batch'
-  revision: number
-  candidates: Candidate[]
-}
-
 export interface IdeasUpdated {
   type: 'ideas.updated'
   revision: number
   ideas: string[]
   keywords: string[]
   source: IdeaSource
-}
-
-export interface LedgerUpdated {
-  type: 'ledger.updated'
-  cala_queries: number
-  references: number
-  cited: number
 }
 
 export type ServerMessage =
@@ -167,6 +181,74 @@ function parseVisualIntent(value: unknown): VisualIntent | null {
   }
 }
 
+function nullableString(value: UnknownRecord, key: string): boolean {
+  return value[key] === null || typeof value[key] === 'string'
+}
+
+function nullableNumber(value: UnknownRecord, key: string): boolean {
+  return value[key] === null || typeof value[key] === 'number'
+}
+
+const candidateLanes = new Set<CandidateLane>(['cited', 'open'])
+
+/**
+ * One candidate, or null. A tile is only as safe as this: everything it renders as text
+ * is proven to be a string here, and `width`/`height` are proven to be numbers or null
+ * so the reserved aspect box is never computed from something that is neither.
+ */
+function parseCandidate(value: unknown): Candidate | null {
+  if (!isRecord(value)) {
+    return null
+  }
+  if (
+    !hasString(value, 'id') ||
+    !hasString(value, 'lane') ||
+    !candidateLanes.has(value.lane as CandidateLane) ||
+    !hasString(value, 'image_url') ||
+    !hasString(value, 'source_url') ||
+    !hasNumber(value, 'score')
+  ) {
+    return null
+  }
+  const nullableStrings = [
+    'publisher',
+    'title',
+    'evidence',
+    'licence',
+    'entity_name',
+    'entity_type',
+  ]
+  if (!nullableStrings.every((key) => nullableString(value, key))) {
+    return null
+  }
+  if (
+    value.origin_image_url !== undefined &&
+    value.origin_image_url !== null &&
+    typeof value.origin_image_url !== 'string'
+  ) {
+    return null
+  }
+  if (!nullableNumber(value, 'width') || !nullableNumber(value, 'height')) {
+    return null
+  }
+  return {
+    id: value.id as string,
+    lane: value.lane as CandidateLane,
+    image_url: value.image_url as string,
+    origin_image_url: typeof value.origin_image_url === 'string' ? value.origin_image_url : null,
+    source_url: value.source_url as string,
+    publisher: value.publisher as string | null,
+    title: value.title as string | null,
+    evidence: value.evidence as string | null,
+    licence: value.licence as string | null,
+    entity_name: value.entity_name as string | null,
+    entity_type: value.entity_type as string | null,
+    width: value.width as number | null,
+    height: value.height as number | null,
+    score: value.score as number,
+  }
+}
+
 const intentSources = new Set<IntentSource>(['fixture', 'local', 'pioneer'])
 const ideaSources = new Set<IdeaSource>(['local', 'openai'])
 const intentChangeReasons = new Set<IntentChangeReason>([
@@ -176,45 +258,6 @@ const intentChangeReasons = new Set<IntentChangeReason>([
   'era',
   'visual_attributes',
 ])
-const candidateLanes = new Set<CandidateLane>(['cited', 'open'])
-
-function parseCandidates(value: unknown): Candidate[] | null {
-  if (!Array.isArray(value)) {
-    return null
-  }
-  const candidates: Candidate[] = []
-  for (const candidate of value) {
-    if (
-      !isRecord(candidate) ||
-      !hasString(candidate, 'id') ||
-      !hasString(candidate, 'lane') ||
-      !hasString(candidate, 'image_url') ||
-      !hasString(candidate, 'source_url') ||
-      !candidateLanes.has(candidate.lane as CandidateLane) ||
-      typeof candidate.score !== 'number'
-    ) {
-      return null
-    }
-    candidates.push({
-      id: candidate.id as string,
-      lane: candidate.lane as CandidateLane,
-      image_url: candidate.image_url as string,
-      origin_image_url:
-        typeof candidate.origin_image_url === 'string' ? candidate.origin_image_url : null,
-      source_url: candidate.source_url as string,
-      publisher: typeof candidate.publisher === 'string' ? candidate.publisher : null,
-      title: typeof candidate.title === 'string' ? candidate.title : null,
-      evidence: typeof candidate.evidence === 'string' ? candidate.evidence : null,
-      licence: typeof candidate.licence === 'string' ? candidate.licence : null,
-      entity_name: typeof candidate.entity_name === 'string' ? candidate.entity_name : null,
-      entity_type: typeof candidate.entity_type === 'string' ? candidate.entity_type : null,
-      width: typeof candidate.width === 'number' ? candidate.width : null,
-      height: typeof candidate.height === 'number' ? candidate.height : null,
-      score: candidate.score as number,
-    })
-  }
-  return candidates
-}
 
 export function parseServerMessage(raw: string): ServerMessage | null {
   const value = parseJson(raw)
@@ -269,15 +312,16 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return null
     }
     case 'candidates.batch': {
-      const candidates = parseCandidates(value.candidates)
-      if (candidates && hasNumber(value, 'revision')) {
-        return {
-          type: 'candidates.batch',
-          revision: value.revision as number,
-          candidates,
-        }
+      if (!hasNumber(value, 'revision') || !Array.isArray(value.candidates)) {
+        return null
       }
-      return null
+      // One malformed candidate drops itself, not the wave. A batch is a best-effort
+      // delivery of whatever the lanes found, and a grid short one tile beats a grid
+      // short a whole wave.
+      const candidates = value.candidates
+        .map(parseCandidate)
+        .filter((item): item is Candidate => item !== null)
+      return { type: 'candidates.batch', revision: value.revision as number, candidates }
     }
     case 'ideas.updated':
       if (

@@ -1,6 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
+from glia.config import Settings
 from glia.contracts import Candidate, CandidatesBatch, LedgerUpdated
 
 VALID = {
@@ -51,3 +52,21 @@ def test_the_ledger_message_carries_the_three_counters() -> None:
         "references": 41,
         "cited": 12,
     }
+
+
+def test_the_api_refuses_to_start_on_an_unfilled_user_agent() -> None:
+    """A `<org>` placeholder identifies nobody. Wikimedia's policy is what this guards."""
+    with pytest.raises(ValidationError):
+        Settings(image_fetch_user_agent="glia/0.1 (+https://github.com/<org>/glia)")
+
+
+def test_an_empty_user_agent_is_refused() -> None:
+    with pytest.raises(ValidationError):
+        Settings(image_fetch_user_agent="   ")
+
+
+def test_a_real_contact_user_agent_is_accepted() -> None:
+    settings = Settings(
+        image_fetch_user_agent="glia/0.1 (+https://github.com/nectios/glia; glia@nectios.com)"
+    )
+    assert "<" not in settings.image_fetch_user_agent

@@ -71,6 +71,10 @@ class DistillationUnavailable(RuntimeError):
 class DistillationResult:
     intent: VisualIntent
     source: IntentSource
+    #: Pioneer's own score for the subject field, when it reported one. None means the
+    #: distiller did not score its answer — which the subject guard treats as "no opinion",
+    #: never as low confidence.
+    subject_confidence: float | None = None
 
 
 class IntentDistiller(Protocol):
@@ -95,9 +99,7 @@ class _PioneerTextMatch(BaseModel):
     confidence: float | None = None
 
 
-type _PioneerField = (
-    str | _PioneerTextMatch | list[str | _PioneerTextMatch] | None
-)
+type _PioneerField = str | _PioneerTextMatch | list[str | _PioneerTextMatch] | None
 
 
 class _PioneerVisualDirection(BaseModel):
@@ -180,6 +182,7 @@ class PioneerIntentDistiller:
                 era=_first_value(direction.era),
             ),
             source="pioneer",
+            subject_confidence=_confidence_of(direction.subject),
         )
         self._cache[cache_key] = result
         self._cache.move_to_end(cache_key)
@@ -287,6 +290,21 @@ def _field_values(value: _PioneerField) -> list[str]:
     return _clean_values(
         [item.text if isinstance(item, _PioneerTextMatch) else item for item in values]
     )
+
+
+def _confidence_of(value: _PioneerField) -> float | None:
+    """The subject's own score, when Pioneer scored it.
+
+    Only a scored match yields a number. A bare string carries no score, and inventing
+    one — 1.0 for "it said something" — would turn the guard into a rubber stamp.
+    """
+    values = value if isinstance(value, list) else [value]
+    scores = [
+        item.confidence
+        for item in values
+        if isinstance(item, _PioneerTextMatch) and item.confidence is not None and item.text.strip()
+    ]
+    return max(scores) if scores else None
 
 
 def _first_value(value: _PioneerField) -> str:

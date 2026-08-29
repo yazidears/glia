@@ -104,6 +104,11 @@ interface SessionState {
   /** New subject revision waiting for its first batch; old photos remain visible until then. */
   pendingCandidateRevision: number | null
   ledger: LedgerUpdated | null
+  /**
+   * Normalised subject currently requested by the backend. It guards repeated intent updates
+   * without coupling the visible board to an in-flight search.
+   */
+  candidateSubject: string
   /** The conditioning input, in click order. Empty means the rail is not on screen at all. */
   pinned: PinnedRef[]
   togglePin: (ref: PinnedRef) => void
@@ -131,6 +136,8 @@ interface SessionState {
   setIdeas: (ideasUpdate: IdeasUpdated) => void
   appendCandidates: (batch: CandidatesBatch) => void
   setLedger: (ledger: LedgerUpdated) => void
+  /** Drop a tile whose image the browser could not load. */
+  removeCandidate: (id: string) => void
   resetRealtime: () => void
 }
 
@@ -210,6 +217,7 @@ export const useSessionStore = create<SessionState>()((set) => ({
   candidateRevision: null,
   pendingCandidateRevision: null,
   ledger: null,
+  candidateSubject: '',
   pinned: [],
   generationStatus: 'idle',
   generation: null,
@@ -275,6 +283,7 @@ export const useSessionStore = create<SessionState>()((set) => ({
         pendingCandidateRevision: subjectChanged
           ? intentUpdate.revision
           : state.pendingCandidateRevision,
+        candidateSubject: nextSubject || state.candidateSubject,
       }
     }),
   setIdeas: (ideasUpdate) =>
@@ -299,8 +308,16 @@ export const useSessionStore = create<SessionState>()((set) => ({
         batch.revision >= state.pendingCandidateRevision &&
         batch.candidates.length > 0
       ) {
+        const seen = new Set<string>()
+        const candidates = batch.candidates.filter((candidate) => {
+          if (seen.has(candidate.id)) {
+            return false
+          }
+          seen.add(candidate.id)
+          return true
+        })
         return {
-          candidates: batch.candidates,
+          candidates,
           candidateRevision: batch.revision,
           pendingCandidateRevision: null,
         }
@@ -308,15 +325,30 @@ export const useSessionStore = create<SessionState>()((set) => ({
       if (state.pendingCandidateRevision !== null) {
         return state
       }
+      const known = new Set(
+        state.candidateRevision === batch.revision
+          ? state.candidates.map((candidate) => candidate.id)
+          : [],
+      )
+      const fresh = batch.candidates.filter((candidate) => {
+        if (known.has(candidate.id)) {
+          return false
+        }
+        known.add(candidate.id)
+        return true
+      })
       return {
         candidates:
-          state.candidateRevision === batch.revision
-            ? [...state.candidates, ...batch.candidates]
-            : batch.candidates,
+          state.candidateRevision === batch.revision ? [...state.candidates, ...fresh] : fresh,
         candidateRevision: batch.revision,
       }
     }),
   setLedger: (ledger) => set({ ledger }),
+  removeCandidate: (id) =>
+    set((state) => {
+      const remaining = state.candidates.filter((item) => item.id !== id)
+      return remaining.length === state.candidates.length ? state : { candidates: remaining }
+    }),
   resetRealtime: () =>
     set({
       connectionState: 'idle',
@@ -333,6 +365,7 @@ export const useSessionStore = create<SessionState>()((set) => ({
       candidateRevision: null,
       pendingCandidateRevision: null,
       ledger: null,
+      candidateSubject: '',
       pinned: [],
       generationStatus: 'idle',
       generation: null,

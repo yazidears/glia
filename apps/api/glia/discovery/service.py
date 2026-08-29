@@ -9,6 +9,8 @@ alive and one that appears at once after four feels broken.
 import asyncio
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
+from typing import Literal
 
 import structlog
 
@@ -24,6 +26,27 @@ from glia.discovery.openverse import OpenverseLane
 logger = structlog.get_logger(__name__)
 
 Emit = Callable[[CandidatesBatch], Awaitable[None]]
+
+LaneStatus = Literal["ok", "empty", "unavailable", "timeout", "crashed", "unknown"]
+
+#: What a health probe asks a lane for. Common enough that a lane returning nothing for
+#: it is broken rather than merely unlucky with the query.
+PROBE_QUERY = "observatory"
+
+#: How long a lane outcome observed from real traffic stands in for a health probe. Under
+#: this, /health reports what production actually saw; over it, /health goes and asks.
+HEALTH_OBSERVATION_TTL_SECONDS = 60.0
+
+
+@dataclass(frozen=True)
+class LaneReport:
+    """One lane's outcome for one discovery call."""
+
+    lane: str
+    status: LaneStatus
+    count: int
+    elapsed: float
+
 
 FIXTURE_CANDIDATES: tuple[Candidate, ...] = (
     Candidate(
@@ -142,7 +165,6 @@ class DiscoveryService:
         wave_size: int,
         wave_delay_seconds: float,
         lane_timeout_seconds: float,
-        lane_stagger_seconds: float,
         lane_min_results: int,
         lane_max_attempts: int,
         allowlist: tuple[str, ...],
@@ -156,13 +178,14 @@ class DiscoveryService:
         self._wave_size = wave_size
         self._wave_delay = wave_delay_seconds
         self._lane_timeout = lane_timeout_seconds
-        self._lane_stagger = lane_stagger_seconds
         self._lane_min_results = lane_min_results
         self._lane_max_attempts = lane_max_attempts
         self._allowlist = allowlist
         self._cache_size = cache_size
         self._cala_lane_timeout = cala_lane_timeout_seconds or lane_timeout_seconds
         self._cache: OrderedDict[str, list[Candidate]] = OrderedDict()
+        #: Last outcome per lane, so /health can answer without going upstream again.
+        self._health: dict[str, tuple[LaneReport, float]] = {}
 
     async def discover(
         self,
@@ -177,9 +200,7 @@ class DiscoveryService:
         if not ladder:
             return []
 
-        lanes = tuple(
-            lane for lane in self._lanes if include_cited or lane.name != "cala"
-        )
+        lanes = tuple(lane for lane in self._lanes if include_cited or lane.name != "cala")
         if not lanes:
             return []
 
@@ -192,7 +213,7 @@ class DiscoveryService:
             await self._emit_waves(cached, revision=revision, emit=emit)
             return cached
 
-        queue: asyncio.Queue[list[Candidate]] = asyncio.Queue()
+        queue: asyncio.Queue[tuple[LaneReport, list[Candidate]]] = asyncio.Queue()
         shipped: list[Candidate] = []
         async with asyncio.TaskGroup() as group:
             for lane in lanes:
@@ -203,60 +224,117 @@ class DiscoveryService:
         return shipped
 
     async def _run_lane(
-        self, lane: ImageLane, ladder: tuple[str, ...], queue: asyncio.Queue[list[Candidate]]
+        self,
+        lane: ImageLane,
+        ladder: tuple[str, ...],
+        queue: asyncio.Queue[tuple["LaneReport", list[Candidate]]],
     ) -> None:
         """Walk the ladder until the lane has enough, then report.
 
         A lane never raises into the group: a dead lane is an empty lane, and
-        the other lane still fills the grid.
+        the other lane still fills the grid. Every rung is logged whatever it
+        returned — a lane that goes quiet is how this went unnoticed for an hour,
+        and silence is not a status.
         """
         candidates: list[Candidate] = []
-        started = asyncio.get_running_loop().time()
+        clock = asyncio.get_running_loop().time
+        started = clock()
+        status: LaneStatus = "empty"
         try:
             lane_timeout = self._cala_lane_timeout if lane.name == "cala" else self._lane_timeout
             max_attempts = 1 if lane.name == "cala" else self._lane_max_attempts
             async with asyncio.timeout(lane_timeout):
                 for attempt, query in enumerate(ladder[:max_attempts]):
-                    elapsed = asyncio.get_running_loop().time() - started
+                    elapsed = clock() - started
                     # Never start a rung that cannot plausibly finish: a broader
                     # rung timing out would throw away what a sharper one found.
                     if attempt and elapsed > lane_timeout / 2:
                         break
-                    found = await lane.search(query)
+                    rung_started = clock()
+                    try:
+                        found = await lane.search(query)
+                    except LaneUnavailable:
+                        self._log_rung(lane, query, "unavailable", 0, clock() - rung_started)
+                        raise
+                    self._log_rung(
+                        lane,
+                        query,
+                        "ok" if found else "empty",
+                        len(found),
+                        clock() - rung_started,
+                    )
                     # A broader rung may return more items but be less relevant. Preserve the
-                    # sharp results and only fill the remaining slots with broader candidates.
+                    # sharp results and only fill the remaining slots with new candidates.
                     seen_ids = {candidate.id for candidate in candidates}
                     candidates.extend(
                         candidate for candidate in found if candidate.id not in seen_ids
                     )
                     if len(candidates) >= self._lane_min_results:
                         break
-        except (LaneUnavailable, TimeoutError) as error:
+                status = "ok" if candidates else "empty"
+        except LaneUnavailable as error:
+            status = "unavailable"
+            logger.warning("discovery.lane_failed", lane=lane.name, error=type(error).__name__)
+        except TimeoutError as error:
+            status = "timeout"
             logger.warning("discovery.lane_failed", lane=lane.name, error=type(error).__name__)
         except Exception as error:  # a lane must never cancel its sibling
+            status = "crashed"
             logger.warning("discovery.lane_crashed", lane=lane.name, error=type(error).__name__)
-        await queue.put(candidates)
+
+        report = LaneReport(
+            lane=lane.name, status=status, count=len(candidates), elapsed=clock() - started
+        )
+        self._remember_health(report)
+        logger.info(
+            "discovery.lane_done",
+            lane=report.lane,
+            status=report.status,
+            count=report.count,
+            elapsed_ms=round(report.elapsed * 1_000),
+        )
+        await queue.put((report, candidates))
+
+    def _log_rung(
+        self, lane: ImageLane, query: str, status: LaneStatus, count: int, elapsed: float
+    ) -> None:
+        logger.info(
+            "discovery.lane_query",
+            lane=lane.name,
+            query=query,
+            status=status,
+            count=count,
+            elapsed_ms=round(elapsed * 1_000),
+        )
 
     async def _drain(
         self,
-        queue: asyncio.Queue[list[Candidate]],
+        queue: asyncio.Queue[tuple["LaneReport", list[Candidate]]],
         lane_count: int,
         revision: int,
         emit: Emit,
         shipped: list[Candidate],
     ) -> None:
+        """Ship each lane's results the moment they land.
+
+        The first lane home is emitted immediately; a second lane that has *also*
+        already finished is folded into the same wave, because mixing is free when
+        it costs no wall-clock. What is never done is waiting: a slow or dead lane
+        must not hold the other lane's first wave, which is the whole point of
+        running them independently.
+        """
         seen: set[str] = set()
         remaining = lane_count
         while remaining > 0 and len(shipped) < self._max_candidates:
-            batch = [await queue.get()]
+            batch = [(await queue.get())[1]]
             remaining -= 1
-            # Give a slower lane a short grace period so the first wave is mixed
-            # rather than one lane's twenty results followed by the other's.
+            # One event-loop turn, not a delay: it lets a lane that finished in the
+            # same tick enqueue, and returns instantly when none has.
+            await asyncio.sleep(0)
             while remaining > 0:
                 try:
-                    async with asyncio.timeout(self._lane_stagger):
-                        batch.append(await queue.get())
-                except TimeoutError:
+                    batch.append(queue.get_nowait()[1])
+                except asyncio.QueueEmpty:
                     break
                 remaining -= 1
             selected = select_new(
@@ -282,6 +360,70 @@ class DiscoveryService:
             )
             if index + self._wave_size < len(candidates) and self._wave_delay > 0:
                 await asyncio.sleep(self._wave_delay)
+
+    # ── health ──────────────────────────────────────────────────────────────
+    #
+    # A dead lane must be visible without reading logs. Real traffic is the best
+    # probe there is, so an outcome seen in the last minute answers /health for
+    # free; only a lane nobody has exercised recently is actually asked.
+
+    def _remember_health(self, report: LaneReport) -> None:
+        self._health[report.lane] = (report, asyncio.get_running_loop().time())
+
+    @property
+    def lane_names(self) -> tuple[str, ...]:
+        return tuple(lane.name for lane in self._lanes)
+
+    async def probe(self) -> list[LaneReport]:
+        """Report every lane's health, asking only the lanes nobody has exercised."""
+        now = asyncio.get_running_loop().time()
+        stale = [
+            lane
+            for lane in self._lanes
+            # Cala is billable. A health endpoint must never spend a credit, so its last
+            # real-traffic observation is reported when one exists and `unknown` otherwise.
+            if lane.name != "cala"
+            and (
+                (observed := self._health.get(lane.name)) is None
+                or now - observed[1] > HEALTH_OBSERVATION_TTL_SECONDS
+            )
+        ]
+        if stale:
+            async with asyncio.TaskGroup() as group:
+                for lane in stale:
+                    group.create_task(self._probe_lane(lane))
+        return [
+            observed[0]
+            if (observed := self._health.get(lane.name))
+            else LaneReport(lane=lane.name, status="unknown", count=0, elapsed=0.0)
+            for lane in self._lanes
+        ]
+
+    async def _probe_lane(self, lane: ImageLane) -> None:
+        clock = asyncio.get_running_loop().time
+        started = clock()
+        status: LaneStatus = "empty"
+        count = 0
+        try:
+            async with asyncio.timeout(self._lane_timeout):
+                found = await lane.search(PROBE_QUERY)
+            count = len(found)
+            status = "ok" if found else "empty"
+        except LaneUnavailable:
+            status = "unavailable"
+        except TimeoutError:
+            status = "timeout"
+        except Exception:  # a probe must never take the health endpoint down
+            status = "crashed"
+        report = LaneReport(lane=lane.name, status=status, count=count, elapsed=clock() - started)
+        self._remember_health(report)
+        logger.info(
+            "discovery.lane_probe",
+            lane=report.lane,
+            status=report.status,
+            count=report.count,
+            elapsed_ms=round(report.elapsed * 1_000),
+        )
 
     def _remember(self, query: str, candidates: list[Candidate]) -> None:
         if not candidates:
@@ -315,14 +457,14 @@ def build_discovery_service(
                 api_url=settings.commons_api_url,
                 user_agent=settings.image_fetch_user_agent,
                 page_size=settings.discovery_page_size,
-                timeout_seconds=settings.discovery_lane_timeout_seconds,
+                timeout_seconds=settings.discovery_request_timeout_seconds,
                 max_retries=settings.discovery_max_retries,
             ),
             OpenverseLane(
                 base_url=settings.openverse_base_url,
                 user_agent=settings.image_fetch_user_agent,
                 page_size=settings.discovery_page_size,
-                timeout_seconds=settings.discovery_lane_timeout_seconds,
+                timeout_seconds=settings.discovery_request_timeout_seconds,
                 max_retries=settings.discovery_max_retries,
                 client_id=(
                     settings.openverse_client_id.get_secret_value()
@@ -360,7 +502,6 @@ def build_discovery_service(
         wave_size=settings.discovery_wave_size,
         wave_delay_seconds=settings.discovery_wave_delay_seconds,
         lane_timeout_seconds=settings.discovery_lane_timeout_seconds,
-        lane_stagger_seconds=settings.discovery_lane_stagger_seconds,
         lane_min_results=settings.discovery_lane_min_results,
         lane_max_attempts=settings.discovery_lane_max_attempts,
         allowlist=settings.image_host_allowlist,

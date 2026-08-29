@@ -29,10 +29,12 @@ function CandidateSticker({
   candidate,
   index,
   onToggle,
+  onUnavailable,
 }: {
   candidate: Candidate
   index: number
   onToggle: (source: HTMLElement) => void
+  onUnavailable: (id: string) => void
 }) {
   const title = candidate.title ?? candidate.publisher ?? 'Visual reference'
   return (
@@ -43,7 +45,14 @@ function CandidateSticker({
         aria-label={`Pin ${title}`}
         onClick={(event) => onToggle(event.currentTarget)}
       >
-        <img alt="" decoding="async" loading="lazy" src={candidate.image_url} />
+        <img
+          alt=""
+          decoding="async"
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          src={candidate.image_url}
+          onError={() => onUnavailable(candidate.id)}
+        />
       </button>
       <figcaption className="sr-only">{title}</figcaption>
       <span className="sticker-lane">
@@ -209,6 +218,7 @@ export function IdeaBoard({ className }: IdeaBoardProps) {
   const setProcessedWordCount = useSessionStore((state) => state.setProcessedWordCount)
   const pinned = useSessionStore((state) => state.pinned)
   const togglePin = useSessionStore((state) => state.togglePin)
+  const removeCandidate = useSessionStore((state) => state.removeCandidate)
   const [revealedCount, setRevealedCount] = useState(0)
   const wordCount = transcript.trim() ? transcript.trim().split(/\s+/).length : 0
   const suggestedCount = demoRevealCount(wordCount)
@@ -244,6 +254,7 @@ export function IdeaBoard({ className }: IdeaBoardProps) {
               candidate={candidate}
               index={index}
               key={candidate.id}
+              onUnavailable={removeCandidate}
               onToggle={(source) => pinFrom(source, candidateToPinnedRef(candidate))}
             />
           ))

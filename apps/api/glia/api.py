@@ -14,6 +14,7 @@ from glia.contracts import (
     GenerateRequest,
     GenerateResponse,
     HealthResponse,
+    LaneHealth,
     LedgerSnapshot,
     RealtimeTokenRequest,
     RealtimeTokenResponse,
@@ -30,6 +31,7 @@ from glia.discovery.cala import (
 )
 from glia.discovery.fetch import FetchFailed, FetchRejected, ImageFetcher
 from glia.discovery.service import DiscoveryService, build_discovery_service
+from glia.discovery.subject import refuse_subject
 from glia.generation.fal import (
     FalClient,
     FalNotConfigured,
@@ -135,7 +137,17 @@ def get_idea_synthesizer() -> IdeaSynthesizer:
 
 
 @router.get("/health")
-async def health(settings: Annotated[Settings, Depends(get_settings)]) -> HealthResponse:
+async def health(
+    settings: Annotated[Settings, Depends(get_settings)],
+    discovery: Annotated[DiscoveryService, Depends(get_discovery_service)],
+) -> HealthResponse:
+    """Liveness plus the one capability the client cannot infer: can images arrive?
+
+    The lane probe is what makes a dead lane visible without reading logs. It costs
+    nothing while the app is in use — a lane outcome seen in the last minute answers
+    for itself — and only goes upstream for a lane nobody has exercised.
+    """
+    lanes = await discovery.probe()
     return HealthResponse(
         status="ok",
         service="glia-api",
@@ -148,7 +160,20 @@ async def health(settings: Annotated[Settings, Depends(get_settings)]) -> Health
             if settings.pioneer_api_key
             else "unconfigured"
         ),
-        image_discovery=True,
+        # A real capability check: the pipeline exists, so this asks whether it can
+        # actually deliver. One healthy lane is enough — the grid is designed to fill
+        # from either — and every lane down means no image can arrive, which the client
+        # has to be told plainly rather than left to discover as an empty grid.
+        image_discovery=any(report.status in {"ok", "empty"} for report in lanes),
+        lanes=[
+            LaneHealth(
+                lane=report.lane,
+                status=report.status,
+                count=report.count,
+                elapsed_ms=round(report.elapsed * 1_000),
+            )
+            for report in lanes
+        ],
     )
 
 
@@ -212,7 +237,16 @@ async def discover(
             correlation_id=correlation_id,
         )
 
-    if subject is None:
+    # "Hola, hola, hola, por qué va tan lento" resolved to the UK company WHY WHY
+    # LIMITED and cost a credit to do it. Filler is not a subject, and the cheapest
+    # place to say so is before the first upstream call.
+    refusal = refuse_subject(subject)
+    if subject is None or refusal is not None:
+        logger.info(
+            "cala.discover.subject_refused",
+            session_id=payload.session_id,
+            reason=refusal.reason if refusal else "missing",
+        )
         return _empty(payload, subject=None, query="", client=client, correlation_id=correlation_id)
 
     # Debounce before anything billable. A request inside the window replays this session's
@@ -387,6 +421,8 @@ async def image_proxy(
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
 @router.post("/v1/generate", response_model=GenerateResponse)
 async def generate(
     payload: GenerateRequest,
@@ -577,6 +613,7 @@ async def realtime_socket(websocket: WebSocket) -> None:
         gate_jaccard_threshold=settings.distill_gate_jaccard_threshold,
         discovery=get_discovery_service(),
         discovery_debounce_ms=settings.discovery_debounce_ms,
+        min_subject_confidence=settings.pioneer_inference_threshold,
     )
     await session.run()
 

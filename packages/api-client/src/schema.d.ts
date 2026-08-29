@@ -4,540 +4,569 @@
  */
 
 export interface paths {
-    "/health": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Health */
-        get: operations["health_health_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/realtime-token": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Realtime Token */
-        post: operations["realtime_token_api_realtime_token_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/ledger": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Ledger
-         * @description Credits spent this process. In-process, so it resets with the API — that is a known
-         *     limitation of today's counter, not a claim about the monthly pool.
-         */
-        get: operations["ledger_v1_ledger_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/discover": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Discover
-         * @description Resolve the spoken subject against Cala, then find the sources that answer it.
-         *
-         *     Three gates stand in front of the two upstream calls, and a settled turn that fails any of
-         *     them costs nothing: the per-session debounce replays the last answer, the cache replays a
-         *     previous one, and the ledger refuses outright once the budget is gone.
-         */
-        post: operations["discover_v1_discover_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/image": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Image Proxy
-         * @description Re-serve a discovered image so the browser never hot-links a third party.
-         *
-         *     `url` is remote-supplied and is treated as such: ImageFetcher owns the
-         *     scheme and host allowlists, the resolved-address check, redirect refusal,
-         *     the content-type check and the streamed byte cap.
-         */
-        get: operations["image_proxy_api_image_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/generate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Generate
-         * @description Transcript + intent + pins → one prompt → one image.
-         *
-         *     Two properties are load-bearing and everything else here serves them.
-         *
-         *     The pins are a real input. Every pin's title reaches the synthesis, and every pin carrying
-         *     an origin image URL is additionally fetched here and re-hosted on fal's storage, so that
-         *     what goes out as `image_urls` is always a URL fal can read. Our own `/api/image` proxy is
-         *     never sent: fal cannot reach localhost, and the pin's display URL is not its origin.
-         *
-         *     A pin that cannot be fetched or uploaded is dropped by id rather than fatal. The generation
-         *     runs on the pins that worked, `reference_count` reports what actually conditioned the image,
-         *     and `unavailable_references` names the ones that did not.
-         *
-         *     The prompt is a deliverable. It is returned verbatim on every outcome that reached fal,
-         *     including the timeout, because it is the answer to "here is what we understood you to
-         *     mean" and that answer survives a generation that did not land.
-         */
-        post: operations["generate_v1_generate_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
+  '/health': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Health
+     * @description Liveness plus the one capability the client cannot infer: can images arrive?
+     *
+     *     The lane probe is what makes a dead lane visible without reading logs. It costs
+     *     nothing while the app is in use — a lane outcome seen in the last minute answers
+     *     for itself — and only goes upstream for a lane nobody has exercised.
+     */
+    get: operations['health_health_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/realtime-token': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Realtime Token */
+    post: operations['realtime_token_api_realtime_token_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/v1/ledger': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Ledger
+     * @description Credits spent this process. In-process, so it resets with the API — that is a known
+     *     limitation of today's counter, not a claim about the monthly pool.
+     */
+    get: operations['ledger_v1_ledger_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/v1/discover': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Discover
+     * @description Resolve the spoken subject against Cala, then find the sources that answer it.
+     *
+     *     Three gates stand in front of the two upstream calls, and a settled turn that fails any of
+     *     them costs nothing: the per-session debounce replays the last answer, the cache replays a
+     *     previous one, and the ledger refuses outright once the budget is gone.
+     */
+    post: operations['discover_v1_discover_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/image': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Image Proxy
+     * @description Re-serve a discovered image so the browser never hot-links a third party.
+     *
+     *     `url` is remote-supplied and is treated as such: ImageFetcher owns the
+     *     scheme and host allowlists, the resolved-address check, redirect refusal,
+     *     the content-type check and the streamed byte cap.
+     */
+    get: operations['image_proxy_api_image_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/v1/generate': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Generate
+     * @description Transcript + intent + pins → one prompt → one image.
+     *
+     *     Two properties are load-bearing and everything else here serves them.
+     *
+     *     The pins are a real input. Every pin's title reaches the synthesis, and every pin carrying
+     *     an origin image URL is additionally fetched here and re-hosted on fal's storage, so that
+     *     what goes out as `image_urls` is always a URL fal can read. Our own `/api/image` proxy is
+     *     never sent: fal cannot reach localhost, and the pin's display URL is not its origin.
+     *
+     *     A pin that cannot be fetched or uploaded is dropped by id rather than fatal. The generation
+     *     runs on the pins that worked, `reference_count` reports what actually conditioned the image,
+     *     and `unavailable_references` names the ones that did not.
+     *
+     *     The prompt is a deliverable. It is returned verbatim on every outcome that reached fal,
+     *     including the timeout, because it is the answer to "here is what we understood you to
+     *     mean" and that answer survives a generation that did not land.
+     */
+    post: operations['generate_v1_generate_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
 }
-export type webhooks = Record<string, never>;
+export type webhooks = Record<string, never>
 export interface components {
-    schemas: {
-        /**
-         * CalaEntityHit
-         * @description One row of `GET /entities?name=…` — the entity-resolution step.
-         */
-        CalaEntityHit: {
-            /** Id */
-            id: string;
-            /** Name */
-            name: string;
-            /** Entity Type */
-            entity_type?: string | null;
-            /** Description */
-            description?: string | null;
-        };
-        /** CalaExplanation */
-        CalaExplanation: {
-            /**
-             * Content
-             * @default
-             */
-            content: string;
-            /** References */
-            references?: string[];
-        };
-        /** CalaNamedUrl */
-        CalaNamedUrl: {
-            /** Name */
-            name?: string | null;
-            /** Url */
-            url?: string | null;
-        };
-        /** CalaOrigin */
-        CalaOrigin: {
-            source?: components["schemas"]["CalaNamedUrl"] | null;
-            document?: components["schemas"]["CalaNamedUrl"] | null;
-        };
-        /** CalaSearchEntity */
-        CalaSearchEntity: {
-            /** Id */
-            id: string;
-            /** Name */
-            name: string;
-            /** Entity Type */
-            entity_type?: string | null;
-            /** Mentions */
-            mentions?: string[];
-        };
-        /** DiscoverRequest */
-        DiscoverRequest: {
-            /** Transcript */
-            transcript: string;
-            /** Session Id */
-            session_id: string;
-        };
-        /** DiscoverResponse */
-        DiscoverResponse: {
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "ok" | "empty" | "rate_limited" | "budget_exhausted";
-            /** Session Id */
-            session_id: string;
-            /** Subject */
-            subject: string | null;
-            /** Query */
-            query: string;
-            entity: components["schemas"]["CalaEntityHit"] | null;
-            /** Answer */
-            answer: string | null;
-            /** Explainability */
-            explainability: components["schemas"]["CalaExplanation"][];
-            /** Context */
-            context: components["schemas"]["EvidenceItem"][];
-            /** Entities */
-            entities: components["schemas"]["CalaSearchEntity"][];
-            /** Cached */
-            cached: boolean;
-            ledger: components["schemas"]["LedgerSnapshot"];
-            /** Correlation Id */
-            correlation_id: string;
-        };
-        /**
-         * EvidenceItem
-         * @description A `context[]` item, with the explainability join already resolved.
-         *
-         *     `carried_answer` is ours, not Cala's: it is true when this item's id appears in some
-         *     `explainability[].references`, which is the salience signal the UI badges.
-         */
-        EvidenceItem: {
-            /** Id */
-            id: string;
-            /** Content */
-            content: string;
-            /** Origins */
-            origins: components["schemas"]["CalaOrigin"][];
-            /** Carried Answer */
-            carried_answer: boolean;
-        };
-        /** GenerateRequest */
-        GenerateRequest: {
-            /** Session Id */
-            session_id: string;
-            /** Transcript */
-            transcript: string;
-            /** Pins */
-            pins?: components["schemas"]["PinnedRef"][];
-        };
-        /** GenerateResponse */
-        GenerateResponse: {
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "ok" | "timeout" | "already_generating" | "reference_unavailable";
-            /** Session Id */
-            session_id: string;
-            /** Image Url */
-            image_url: string | null;
-            /** Prompt */
-            prompt: string;
-            /** Model */
-            model: string;
-            /** Reference Count */
-            reference_count: number;
-            /** Unavailable References */
-            unavailable_references?: string[];
-            /** Correlation Id */
-            correlation_id: string;
-        };
-        /** HTTPValidationError */
-        HTTPValidationError: {
-            /** Detail */
-            detail?: components["schemas"]["ValidationError"][];
-        };
-        /** HealthResponse */
-        HealthResponse: {
-            /** Status */
-            status: string;
-            /** Service */
-            service: string;
-            /** Mode */
-            mode: string;
-            /** Realtime */
-            realtime: string;
-            /** Distiller */
-            distiller: string;
-            /**
-             * Image Discovery
-             * @description Whether this server can return image candidates for a distilled intent. False means the client must not offer an image-bearing output mode.
-             */
-            image_discovery: boolean;
-        };
-        /**
-         * LedgerSnapshot
-         * @description Credits spent this process. `entity_calls` is counted separately because
-         *     docs/PARTNERS.md flags it as undocumented whether `/entities` consumes credits; we charge
-         *     it against the budget (the safe direction) while keeping it measurable against the console.
-         */
-        LedgerSnapshot: {
-            /** Budget */
-            budget: number;
-            /** Spent */
-            spent: number;
-            /** Remaining */
-            remaining: number;
-            /** Search Calls */
-            search_calls: number;
-            /** Entity Calls */
-            entity_calls: number;
-        };
-        /** PinnedRef */
-        PinnedRef: {
-            /** Id */
-            id: string;
-            /** Title */
-            title: string;
-            /** Lane */
-            lane: string;
-            /** Image Url */
-            image_url?: string | null;
-            /** Origin Image Url */
-            origin_image_url?: string | null;
-            /** Source Url */
-            source_url?: string | null;
-        };
-        /** RealtimeTokenRequest */
-        RealtimeTokenRequest: {
-            /** Client Id */
-            client_id: string;
-            /** Languages */
-            languages?: ("ca" | "en" | "es" | "fr")[];
-        };
-        /** RealtimeTokenResponse */
-        RealtimeTokenResponse: {
-            /** Value */
-            value: string;
-            /** Expires At */
-            expires_at: number;
-            /** Model */
-            model: string;
-        };
-        /** ValidationError */
-        ValidationError: {
-            /** Location */
-            loc: (string | number)[];
-            /** Message */
-            msg: string;
-            /** Error Type */
-            type: string;
-            /** Input */
-            input?: unknown;
-            /** Context */
-            ctx?: Record<string, never>;
-        };
-    };
-    responses: never;
-    parameters: never;
-    requestBodies: never;
-    headers: never;
-    pathItems: never;
+  schemas: {
+    /**
+     * CalaEntityHit
+     * @description One row of `GET /entities?name=…` — the entity-resolution step.
+     */
+    CalaEntityHit: {
+      /** Id */
+      id: string
+      /** Name */
+      name: string
+      /** Entity Type */
+      entity_type?: string | null
+      /** Description */
+      description?: string | null
+    }
+    /** CalaExplanation */
+    CalaExplanation: {
+      /**
+       * Content
+       * @default
+       */
+      content: string
+      /** References */
+      references?: string[]
+    }
+    /** CalaNamedUrl */
+    CalaNamedUrl: {
+      /** Name */
+      name?: string | null
+      /** Url */
+      url?: string | null
+    }
+    /** CalaOrigin */
+    CalaOrigin: {
+      source?: components['schemas']['CalaNamedUrl'] | null
+      document?: components['schemas']['CalaNamedUrl'] | null
+    }
+    /** CalaSearchEntity */
+    CalaSearchEntity: {
+      /** Id */
+      id: string
+      /** Name */
+      name: string
+      /** Entity Type */
+      entity_type?: string | null
+      /** Mentions */
+      mentions?: string[]
+    }
+    /** DiscoverRequest */
+    DiscoverRequest: {
+      /** Transcript */
+      transcript: string
+      /** Session Id */
+      session_id: string
+    }
+    /** DiscoverResponse */
+    DiscoverResponse: {
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: 'ok' | 'empty' | 'rate_limited' | 'budget_exhausted'
+      /** Session Id */
+      session_id: string
+      /** Subject */
+      subject: string | null
+      /** Query */
+      query: string
+      entity: components['schemas']['CalaEntityHit'] | null
+      /** Answer */
+      answer: string | null
+      /** Explainability */
+      explainability: components['schemas']['CalaExplanation'][]
+      /** Context */
+      context: components['schemas']['EvidenceItem'][]
+      /** Entities */
+      entities: components['schemas']['CalaSearchEntity'][]
+      /** Cached */
+      cached: boolean
+      ledger: components['schemas']['LedgerSnapshot']
+      /** Correlation Id */
+      correlation_id: string
+    }
+    /**
+     * EvidenceItem
+     * @description A `context[]` item, with the explainability join already resolved.
+     *
+     *     `carried_answer` is ours, not Cala's: it is true when this item's id appears in some
+     *     `explainability[].references`, which is the salience signal the UI badges.
+     */
+    EvidenceItem: {
+      /** Id */
+      id: string
+      /** Content */
+      content: string
+      /** Origins */
+      origins: components['schemas']['CalaOrigin'][]
+      /** Carried Answer */
+      carried_answer: boolean
+    }
+    /** GenerateRequest */
+    GenerateRequest: {
+      /** Session Id */
+      session_id: string
+      /** Transcript */
+      transcript: string
+      /** Pins */
+      pins?: components['schemas']['PinnedRef'][]
+    }
+    /** GenerateResponse */
+    GenerateResponse: {
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: 'ok' | 'timeout' | 'already_generating' | 'reference_unavailable'
+      /** Session Id */
+      session_id: string
+      /** Image Url */
+      image_url: string | null
+      /** Prompt */
+      prompt: string
+      /** Model */
+      model: string
+      /** Reference Count */
+      reference_count: number
+      /** Unavailable References */
+      unavailable_references?: string[]
+      /** Correlation Id */
+      correlation_id: string
+    }
+    /** HTTPValidationError */
+    HTTPValidationError: {
+      /** Detail */
+      detail?: components['schemas']['ValidationError'][]
+    }
+    /** HealthResponse */
+    HealthResponse: {
+      /** Status */
+      status: string
+      /** Service */
+      service: string
+      /** Mode */
+      mode: string
+      /** Realtime */
+      realtime: string
+      /** Distiller */
+      distiller: string
+      /**
+       * Image Discovery
+       * @description Whether this server can return image candidates for a distilled intent. False means the client must not offer an image-bearing output mode.
+       */
+      image_discovery: boolean
+      /**
+       * Lanes
+       * @description Per-lane health. `ok` means the lane answered with candidates; every other value means the grid is running on fewer lanes than it should be.
+       */
+      lanes?: components['schemas']['LaneHealth'][]
+    }
+    /**
+     * LaneHealth
+     * @description One image lane's last known outcome, so a dead lane is visible without logs.
+     */
+    LaneHealth: {
+      /** Lane */
+      lane: string
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: 'ok' | 'empty' | 'unavailable' | 'timeout' | 'crashed' | 'unknown'
+      /** Count */
+      count: number
+      /** Elapsed Ms */
+      elapsed_ms: number
+    }
+    /**
+     * LedgerSnapshot
+     * @description Credits spent this process. `entity_calls` is counted separately because
+     *     docs/PARTNERS.md flags it as undocumented whether `/entities` consumes credits; we charge
+     *     it against the budget (the safe direction) while keeping it measurable against the console.
+     */
+    LedgerSnapshot: {
+      /** Budget */
+      budget: number
+      /** Spent */
+      spent: number
+      /** Remaining */
+      remaining: number
+      /** Search Calls */
+      search_calls: number
+      /** Entity Calls */
+      entity_calls: number
+    }
+    /** PinnedRef */
+    PinnedRef: {
+      /** Id */
+      id: string
+      /** Title */
+      title: string
+      /** Lane */
+      lane: string
+      /** Image Url */
+      image_url?: string | null
+      /** Origin Image Url */
+      origin_image_url?: string | null
+      /** Source Url */
+      source_url?: string | null
+    }
+    /** RealtimeTokenRequest */
+    RealtimeTokenRequest: {
+      /** Client Id */
+      client_id: string
+      /** Languages */
+      languages?: ('ca' | 'en' | 'es' | 'fr')[]
+    }
+    /** RealtimeTokenResponse */
+    RealtimeTokenResponse: {
+      /** Value */
+      value: string
+      /** Expires At */
+      expires_at: number
+      /** Model */
+      model: string
+    }
+    /** ValidationError */
+    ValidationError: {
+      /** Location */
+      loc: (string | number)[]
+      /** Message */
+      msg: string
+      /** Error Type */
+      type: string
+      /** Input */
+      input?: unknown
+      /** Context */
+      ctx?: Record<string, never>
+    }
+  }
+  responses: never
+  parameters: never
+  requestBodies: never
+  headers: never
+  pathItems: never
 }
-export type $defs = Record<string, never>;
+export type $defs = Record<string, never>
 export interface operations {
-    health_health_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthResponse"];
-                };
-            };
-        };
-    };
-    realtime_token_api_realtime_token_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RealtimeTokenRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RealtimeTokenResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    ledger_v1_ledger_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LedgerSnapshot"];
-                };
-            };
-        };
-    };
-    discover_v1_discover_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DiscoverRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DiscoverResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    image_proxy_api_image_get: {
-        parameters: {
-            query: {
-                url: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    generate_v1_generate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["GenerateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GenerateResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
+  health_health_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HealthResponse']
+        }
+      }
+    }
+  }
+  realtime_token_api_realtime_token_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RealtimeTokenRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['RealtimeTokenResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  ledger_v1_ledger_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['LedgerSnapshot']
+        }
+      }
+    }
+  }
+  discover_v1_discover_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['DiscoverRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['DiscoverResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  image_proxy_api_image_get: {
+    parameters: {
+      query: {
+        url: string
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': unknown
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  generate_v1_generate_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['GenerateRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['GenerateResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
 }

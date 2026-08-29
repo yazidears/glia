@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -61,19 +61,29 @@ class Settings(BaseSettings):
     commons_api_url: str = "https://commons.wikimedia.org/w/api.php"
 
     discovery_page_size: int = Field(default=20, ge=1, le=50)
-    discovery_lane_timeout_seconds: float = Field(default=8.0, gt=0, le=30)
+    # A lane walks up to three ladder rungs inside this one budget. Measured against the
+    # live APIs on 29 Aug 2026: Commons p50 0.84s / max 1.14s per rung, Openverse p50 0.14s
+    # / max 0.44s. Worst realistic walk is three Commons rungs plus one retry ≈ 5s, so 12s
+    # is that plus headroom for a bad day rather than a number that felt about right.
+    discovery_lane_timeout_seconds: float = Field(default=12.0, gt=0, le=60)
+    # One HTTP request may not eat the whole lane budget: a rung that hangs has to give up
+    # while later rungs can still run. Commons `insource:` regex queries hang past 30s.
+    discovery_request_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
     discovery_max_retries: int = Field(default=1, ge=0, le=3)
-    discovery_debounce_ms: int = Field(default=600, ge=0, le=10_000)
+    # Pure dead wait in front of the first query, and it was 600ms of a 2.06s
+    # time-to-first-image (measured 29 Aug 2026: 600ms here + 1361ms of lane work).
+    # Coalescing rapid subject changes is its real job, and 250ms still does that —
+    # `_schedule_discovery` already refuses to re-run an unchanged subject.
+    discovery_debounce_ms: int = Field(default=250, ge=0, le=10_000)
     discovery_min_edge: int = Field(default=200, ge=1, le=4_000)
     discovery_max_candidates: int = Field(default=30, ge=1, le=100)
     discovery_wave_size: int = Field(default=8, ge=1, le=50)
     discovery_wave_delay_seconds: float = Field(default=0.12, ge=0, le=2)
-    discovery_lane_stagger_seconds: float = Field(default=0.05, ge=0, le=5)
     discovery_lane_min_results: int = Field(default=8, ge=1, le=50)
     discovery_lane_max_attempts: int = Field(default=3, ge=1, le=4)
     discovery_cache_size: int = Field(default=64, ge=1, le=1_000)
 
-    image_fetch_user_agent: str = "glia/0.1 (+https://github.com/glia/glia)"
+    image_fetch_user_agent: str = "glia/0.1 (+https://github.com/nectios/glia; glia@nectios.com)"
     image_fetch_max_bytes: int = Field(default=5_242_880, ge=1_024, le=25_000_000)
     image_fetch_connect_timeout: float = Field(default=3.0, gt=0, le=30)
     image_fetch_total_timeout: float = Field(default=8.0, gt=0, le=60)
@@ -106,6 +116,27 @@ class Settings(BaseSettings):
     #: flight beside it.
     fal_reference_timeout_seconds: float = Field(default=20.0, gt=0, le=60)
     fal_upload_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
+
+    @field_validator("image_fetch_user_agent")
+    @classmethod
+    def _reject_placeholder_user_agent(cls, value: str) -> str:
+        """Refuse to start on an unfilled User-Agent template.
+
+        Wikimedia enforces a User-Agent policy and does reject on it: a request sent as
+        `python-httpx/0.28.1` is answered 403 in 0.13s (measured 29 Aug 2026). A UA still
+        carrying `<org>` is not rejected *today*, but it is a template nobody filled in,
+        it identifies no one, and it is exactly what the policy exists to stop. Failing at
+        startup is cheaper than discovering it as a dead lane mid-demo.
+        """
+        if "<" in value or ">" in value:
+            raise ValueError(
+                "IMAGE_FETCH_USER_AGENT still contains a '<...>' placeholder. Wikimedia's "
+                "User-Agent policy requires a real contact: set it to something like "
+                "'glia/0.1 (+https://github.com/your-org/glia; you@example.com)'."
+            )
+        if not value.strip():
+            raise ValueError("IMAGE_FETCH_USER_AGENT must not be empty.")
+        return value
 
 
 @lru_cache(maxsize=1)

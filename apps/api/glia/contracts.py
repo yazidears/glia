@@ -13,6 +13,15 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class LaneHealth(StrictModel):
+    """One image lane's last known outcome, so a dead lane is visible without logs."""
+
+    lane: str
+    status: Literal["ok", "empty", "unavailable", "timeout", "crashed", "unknown"]
+    count: int
+    elapsed_ms: int
+
+
 class HealthResponse(StrictModel):
     status: str
     service: str
@@ -24,6 +33,13 @@ class HealthResponse(StrictModel):
             "Whether this server can return image candidates for a distilled intent. "
             "False means the client must not offer an image-bearing output mode."
         )
+    )
+    lanes: list[LaneHealth] = Field(
+        default_factory=list,
+        description=(
+            "Per-lane health. `ok` means the lane answered with candidates; every other "
+            "value means the grid is running on fewer lanes than it should be."
+        ),
     )
 
 
