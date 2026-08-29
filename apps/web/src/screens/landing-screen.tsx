@@ -1,5 +1,7 @@
 import { Mic } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Waveform } from '@/components/waveform'
+import { useAudioLevel } from '@/hooks/use-audio-level'
 import { useMicrophone } from '@/hooks/use-microphone'
 import { cn } from '@/lib/utils'
 import type { MicState } from '@/stores/session'
@@ -14,6 +16,7 @@ const CAPTIONS: Record<MicState, string> = {
 
 export function LandingScreen() {
   const { micState, toggle } = useMicrophone()
+  const audio = useAudioLevel()
   const isListening = micState === 'granted'
 
   return (
@@ -42,6 +45,7 @@ export function LandingScreen() {
         >
           <Mic className={cn('size-7', micState === 'requesting' && 'animate-pulse opacity-50')} />
         </span>
+        <Waveform handle={audio} variant="hero" />
         <span className="font-normal text-neutral-500 text-sm dark:text-neutral-400">
           {CAPTIONS[micState]}
         </span>

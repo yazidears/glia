@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from 'react'
+import { closeAudioContext, primeAudioContext } from '@/hooks/use-audio-level'
 import { type MicState, useSessionStore } from '@/stores/session'
 
 function stopTracks(stream: MediaStream | null): void {
@@ -8,6 +9,14 @@ function stopTracks(stream: MediaStream | null): void {
   for (const track of stream.getTracks()) {
     track.stop()
   }
+}
+
+/** Stopping is one act: release the device, then release the audio hardware behind it. */
+function release(stream: MediaStream | null): void {
+  stopTracks(stream)
+  // Nothing waits on the close; a context that has been detached from its stream is already
+  // silent, and `state` settles to `closed` on its own.
+  void closeAudioContext()
 }
 
 /**
@@ -33,7 +42,7 @@ export function useMicrophone(): { micState: MicState; toggle: () => void } {
   // recording indicator lit, and an app that looks like it is still listening reads as broken.
   useEffect(() => {
     return () => {
-      stopTracks(useSessionStore.getState().stream)
+      release(useSessionStore.getState().stream)
     }
   }, [])
 
@@ -45,7 +54,7 @@ export function useMicrophone(): { micState: MicState; toggle: () => void } {
     }
 
     if (current === 'granted') {
-      stopTracks(activeStream)
+      release(activeStream)
       setMic('idle', null)
       return
     }
@@ -54,6 +63,7 @@ export function useMicrophone(): { micState: MicState; toggle: () => void } {
     // HTTPS or from localhost. On any other origin it is undefined and no prompt is possible.
     const mediaDevices: MediaDevices | undefined = navigator.mediaDevices
     if (!mediaDevices || typeof mediaDevices.getUserMedia !== 'function') {
+      release(null)
       setMic('unsupported', null)
       return
     }
@@ -63,11 +73,18 @@ export function useMicrophone(): { micState: MicState; toggle: () => void } {
       const granted = await mediaDevices.getUserMedia({ audio: true })
       setMic('granted', granted)
     } catch (error) {
+      // The context was primed by the click that led here; nothing will ever feed it now.
+      release(null)
       setMic(classifyFailure(error), null)
     }
   }, [setMic])
 
   const toggle = useCallback((): void => {
+    // The AudioContext has to be constructed while the click is still on the call stack — after
+    // the `getUserMedia` await, the gesture is gone and the browser starts it suspended.
+    if (useSessionStore.getState().micState !== 'granted') {
+      primeAudioContext()
+    }
     void request()
   }, [request])
 
