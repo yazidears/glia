@@ -12,6 +12,16 @@ export type EvidenceItem = components['schemas']['EvidenceItem']
 export type EvidenceOrigin = components['schemas']['CalaOrigin']
 export type LedgerSnapshot = components['schemas']['LedgerSnapshot']
 
+export type GenerateRequest = components['schemas']['GenerateRequest']
+export type GenerateResponse = components['schemas']['GenerateResponse']
+export type GenerateStatus = GenerateResponse['status']
+/**
+ * The wire shape of a pin. The store keeps its own camelCase `PinnedRef` — this is what that
+ * becomes at the boundary, and the two are joined by one mapper so a rename on either side is
+ * a type error rather than a silently dropped field.
+ */
+export type PinnedRefPayload = components['schemas']['PinnedRef']
+
 /**
  * The languages the transcription session may be told to expect. Derived from the generated
  * schema rather than restated, so the day someone edits `ExpectedLanguage` in `contracts.py`

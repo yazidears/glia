@@ -1,6 +1,6 @@
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
 ExpectedLanguage = Literal["ca", "en", "es", "fr"]
 
@@ -275,4 +275,69 @@ class DiscoverResponse(StrictModel):
     #: True when this response cost zero credits — a cache hit or a debounced replay.
     cached: bool
     ledger: LedgerSnapshot
+    correlation_id: str
+
+
+# ─── Generate ───────────────────────────────────────────────────────────────────
+#
+# The pin is the unit of conditioning. `image_url` is deliberately nullable and deliberately
+# not optional: today's board stickers are inline SVG with no public URL, so they arrive here
+# as null, and the honest consequence is that they steer the prompt as words rather than as
+# reference images. Lane B tiles will carry a real https URL through the identical field.
+
+
+class PinnedRef(StrictModel):
+    id: str = Field(min_length=1, max_length=128)
+    title: str = Field(min_length=1, max_length=200)
+    lane: str = Field(min_length=1, max_length=64)
+    #: Public https only. fal fetches references over the internet, so a data: URI, a blob:
+    #: URL or anything on localhost is unreachable to it and is treated as no URL at all.
+    image_url: str | None = Field(default=None, max_length=2_048)
+    source_url: str | None = Field(default=None, max_length=2_048)
+
+
+class GenerateRequest(StrictModel):
+    session_id: str = Field(min_length=1, max_length=128)
+    transcript: str = Field(min_length=1, max_length=50_000)
+    pins: list[PinnedRef] = Field(default_factory=list, max_length=32)
+
+
+class SynthesisedPrompt(StrictModel):
+    """The synthesis contract, enforced on OpenAI's reply.
+
+    A prompt that misses these bounds is a validation error here rather than a bad image later,
+    which is the whole reason the model is asked for JSON instead of prose.
+    """
+
+    prompt: str = Field(min_length=12, max_length=900)
+
+    @field_validator("prompt")
+    @classmethod
+    def _under_eighty_words(cls, value: str) -> str:
+        words = value.split()
+        if len(words) > 80:
+            raise ValueError("The synthesised prompt must be under 80 words.")
+        return " ".join(words)
+
+
+#: `ok` carries an image. The rest are answers, not server errors — same shape, so the client
+#: renders them without a second code path.
+#:
+#: `reference_unavailable` is the one the user can act on: fal could not fetch a pinned image,
+#: and the pin is theirs to remove. It is separate from `fal_upstream_failed` because retrying
+#: it never helps, and telling someone to try again when trying again cannot work is worse than
+#: telling them nothing.
+GenerateStatus = Literal["ok", "timeout", "already_generating", "reference_unavailable"]
+
+
+class GenerateResponse(StrictModel):
+    status: GenerateStatus
+    session_id: str
+    image_url: str | None
+    #: Verbatim, exactly what was sent to fal. Empty only when we refused before synthesising.
+    prompt: str
+    model: str
+    #: How many pins fal actually received as `image_urls`. Zero is normal and is never dressed
+    #: up: the pins still reached the prompt as steering terms, which is a different claim.
+    reference_count: int
     correlation_id: str
