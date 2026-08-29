@@ -17,5 +17,12 @@ export default defineConfig({
     // getUserMedia is only exposed in a secure context; localhost counts as one.
     port: 5173,
     strictPort: true,
+    proxy: {
+      '/api': 'http://127.0.0.1:8000',
+      '/ws': {
+        target: 'ws://127.0.0.1:8000',
+        ws: true,
+      },
+    },
   },
 })

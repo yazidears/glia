@@ -28,7 +28,7 @@ async def test_openai_broker_mints_a_scoped_transcription_session(
             captured["client"] = kwargs
             self.realtime = SimpleNamespace(client_secrets=FakeClientSecrets())
 
-    monkeypatch.setattr(token_module, "OpenAI", FakeOpenAI)
+    monkeypatch.setattr(token_module, "_create_openai_client", FakeOpenAI)
     broker = OpenAIRealtimeTokenBroker(
         Settings(
             environment="test",
@@ -47,4 +47,10 @@ async def test_openai_broker_mints_a_scoped_transcription_session(
     assert captured["expires_after"] == {"anchor": "created_at", "seconds": 120}
     session = cast(dict[str, object], captured["session"])
     assert session["type"] == "transcription"
+    audio = cast(dict[str, object], session["audio"])
+    audio_input = cast(dict[str, object], audio["input"])
+    transcription = cast(dict[str, object], audio_input["transcription"])
+    assert transcription["model"] == "gpt-live-transcribe"
+    assert transcription["languages"] == ["en", "es"]
+    assert "turn_detection" not in audio_input
     assert "test-key" not in result.model_dump_json()

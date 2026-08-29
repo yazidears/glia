@@ -1,12 +1,35 @@
 import asyncio
 import hashlib
+import logging
 from collections.abc import Sequence
-from typing import Protocol
-
-from openai import OpenAI
+from typing import TYPE_CHECKING, Protocol
 
 from glia.config import Settings
 from glia.contracts import RealtimeTokenResponse
+
+logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from openai import OpenAI
+
+
+def _create_openai_client(
+    *,
+    api_key: str,
+    timeout: float,
+    max_retries: int,
+    default_headers: dict[str, str],
+) -> "OpenAI":
+    # Import lazily so health checks and the deterministic websocket path do not
+    # pay the SDK import cost. The key remains exclusively on the API process.
+    from openai import OpenAI
+
+    return OpenAI(
+        api_key=api_key,
+        timeout=timeout,
+        max_retries=max_retries,
+        default_headers=default_headers,
+    )
 
 
 class TokenBrokerUnavailable(RuntimeError):
@@ -33,7 +56,7 @@ class OpenAIRealtimeTokenBroker:
         safety_identifier = hashlib.sha256(client_id.encode("utf-8")).hexdigest()
 
         def create_secret() -> RealtimeTokenResponse:
-            client = OpenAI(
+            client = _create_openai_client(
                 api_key=api_key.get_secret_value(),
                 timeout=self._settings.openai_request_timeout_seconds,
                 max_retries=1,
@@ -53,16 +76,15 @@ class OpenAIRealtimeTokenBroker:
                             "transcription": {
                                 "model": self._settings.openai_transcribe_model,
                                 "languages": list(languages),
-                                "delay": "low",
-                                "prompt": (
-                                    "A person thinking out loud about a visual idea they want "
-                                    "to create. Preserve art, design, photography, colour, mood, "
-                                    "composition, material, place, and proper-name vocabulary."
-                                ),
-                            },
-                            "turn_detection": {
-                                "type": "semantic_vad",
-                                "eagerness": "low",
+                                "keywords": [
+                                    "art",
+                                    "design",
+                                    "photography",
+                                    "colour",
+                                    "mood",
+                                    "composition",
+                                    "material",
+                                ],
                             },
                         }
                     },
@@ -84,4 +106,10 @@ class OpenAIRealtimeTokenBroker:
         except TokenBrokerUnavailable:
             raise
         except Exception as exc:
+            logger.warning(
+                "OpenAI Realtime token mint failed: error=%s status=%s code=%s",
+                type(exc).__name__,
+                getattr(exc, "status_code", None),
+                getattr(exc, "code", None),
+            )
             raise TokenMintFailed("OpenAI token mint failed") from exc

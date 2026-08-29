@@ -1,8 +1,9 @@
 import { Mic } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useMicrophone } from '@/hooks/use-microphone'
+import { useRealtimeTranscription } from '@/hooks/use-realtime-transcription'
 import { cn } from '@/lib/utils'
-import type { MicState } from '@/stores/session'
+import { type MicState, useSessionStore } from '@/stores/session'
 
 const CAPTIONS: Record<MicState, string> = {
   idle: 'Speak your mind.',
@@ -14,7 +15,17 @@ const CAPTIONS: Record<MicState, string> = {
 
 export function LandingScreen() {
   const { micState, toggle } = useMicrophone()
+  useRealtimeTranscription()
+  const connectionState = useSessionStore((state) => state.connectionState)
+  const transcript = useSessionStore((state) => state.transcript)
+  const intent = useSessionStore((state) => state.intent)
   const isListening = micState === 'granted'
+  const caption =
+    connectionState === 'connecting'
+      ? 'Connecting.'
+      : connectionState === 'error'
+        ? 'Connection interrupted.'
+        : CAPTIONS[micState]
 
   return (
     <main className="flex min-h-dvh items-center justify-center bg-white dark:bg-neutral-950">
@@ -43,9 +54,23 @@ export function LandingScreen() {
           <Mic className={cn('size-7', micState === 'requesting' && 'animate-pulse opacity-50')} />
         </span>
         <span className="font-normal text-neutral-500 text-sm dark:text-neutral-400">
-          {CAPTIONS[micState]}
+          {caption}
         </span>
       </Button>
+      {transcript ? (
+        <section
+          aria-live="polite"
+          aria-label="Live transcript"
+          className="fixed inset-x-6 bottom-8 max-w-2xl text-left sm:left-10 sm:right-auto"
+        >
+          <p className="font-medium text-base text-neutral-900 leading-relaxed dark:text-neutral-100">
+            {transcript}
+          </p>
+          {intent?.subject ? (
+            <p className="mt-1 text-neutral-400 text-sm dark:text-neutral-600">{intent.subject}</p>
+          ) : null}
+        </section>
+      ) : null}
     </main>
   )
 }
