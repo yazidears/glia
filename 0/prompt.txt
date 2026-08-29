@@ -1,0 +1,85 @@
+## B-2 · Lane B discovery — real images in the grid
+
+Backend + WS. One agent. Independent of the session rewriting Workpane; that one owns
+the text panel, this one produces candidates for the grid.
+
+OBJECTIVE
+
+Glia's canvas is empty. Cala cannot fill it — measured today: no image property in the
+graph, and og:image extraction from its cited pages yields roughly one useful image in
+nine, mostly site chrome. Do not spend time re-testing that.
+
+Wikimedia Commons and Openverse return direct image URLs with titles, licences and
+dimensions. That is the grid. docs/STACK.md already calls Lane B first-class rather
+than a fallback; this ticket is what makes that true.
+
+Images arriving and settling while the user is still talking is the thing a judge
+remembers. Everything here serves that.
+
+CONTEXT
+
+Read apps/api/glia/{contracts.py,config.py,realtime/socket.py} and match their style:
+StrictModel, typed settings, discriminated message union. IntentUpdated already carries
+{subject, moods, styles, palette} — that is your query input. Do not write a distiller
+and do not query from the raw transcript.
+
+If the Candidate contract (G-0) has not landed, add it exactly as specified there and
+say so; do not invent a different shape.
+
+TASK
+
+1. glia/discovery/openverse.py
+   GET https://api.openverse.org/v1/images/ with q, page_size=20,
+   license_type=commercial. Map each result: image_url=url, source_url=
+   foreign_landing_url, publisher=source, title=title, licence="{license}
+   {license_version}", width, height, lane="open". Auth is optional — anonymous works
+   at a lower rate limit. If OPENVERSE_CLIENT_ID/SECRET are set, use the token; if not,
+   run anonymous rather than failing.
+
+2. glia/discovery/commons.py
+   Wikimedia Commons API: action=query&generator=search&gsrnamespace=6&gsrsearch=<q>
+   &gsrlimit=20&prop=imageinfo&iiprop=url|size|extmetadata&iiurlwidth=800. Use thumburl
+   as image_url, descriptionurl as source_url, publisher="Wikimedia Commons",
+   extmetadata.LicenseShortName as licence, thumbwidth/thumbheight as dimensions.
+   No auth. Send a real User-Agent — Wikimedia blocks generic ones.
+
+3. Query construction. subject carries the search; one or two style/mood terms sharpen
+   it. Keep it short — long queries return nothing on both APIs. Run both lanes
+   concurrently in an asyncio.TaskGroup, 8s timeout each, and let one lane's failure
+   never take the other down.
+
+4. Merge. Dedupe on normalised URL and on title; skip perceptual hashing today and say
+   in a comment that it is deferred. Drop anything under 200px on either side, anything
+   without dimensions (reserved aspect boxes need them — a tile that reflows on load is
+   the failure this design exists to avoid), and anything that is not http(s).
+   Interleave the lanes so a wave is mixed rather than 20 Commons then 20 Openverse.
+
+5. Serve through the existing image proxy if one landed with B-1; otherwise add a
+   minimal one. These are fixed known hosts, so the allowlist is a short suffix list
+   (upload.wikimedia.org, commons.wikimedia.org, and the Openverse result hosts) — no
+   redirects, content-type must be image/*, 5 MB cap. Simple, but do not skip it: the
+   demo has a "fire an attack at the API" beat and hot-linked third-party images
+   contradict it.
+
+6. Wire into the WebSocket. On IntentUpdated with stable=true and a materially changed
+   subject, kick discovery off as a task — never block the socket — and emit
+   CandidatesBatch as results land so the grid fills in waves. Debounce per session.
+   Honour demo_mode="fixture" with a canned batch that hits no network, as the realtime
+   lane already does.
+
+NOT IN SCOPE. No Cala call — this lane spends zero credits and must not touch the Cala
+client. No fal. No Postgres, no Redis; in-process cache and counters.
+
+CONSTRAINTS
+
+mypy --strict clean, ruff clean, Pydantic v2 at every boundary, no bare except. Every
+outbound call has an explicit timeout and a retry that does not retry 4xx. uv.lock
+committed. Do not modify README.md or docs/. Do not run git commit.
+
+ACCEPTANCE
+
+Speaking a subject produces 15-30 real images in the grid within a couple of seconds,
+every one with a title, a licence and dimensions, badged OPEN. A dead lane degrades to
+the other lane rather than an empty grid. The same subject twice hits cache and makes
+no second request. Fixture mode produces a batch with the network unplugged. uv run
+mypy . and ruff check . pass.
