@@ -4,6 +4,14 @@ export type HealthResponse = components['schemas']['HealthResponse']
 export type RealtimeTokenRequest = components['schemas']['RealtimeTokenRequest']
 export type RealtimeTokenResponse = components['schemas']['RealtimeTokenResponse']
 
+export type DiscoverRequest = components['schemas']['DiscoverRequest']
+export type DiscoverResponse = components['schemas']['DiscoverResponse']
+export type DiscoveryStatus = DiscoverResponse['status']
+export type ResolvedEntity = components['schemas']['CalaEntityHit']
+export type EvidenceItem = components['schemas']['EvidenceItem']
+export type EvidenceOrigin = components['schemas']['CalaOrigin']
+export type LedgerSnapshot = components['schemas']['LedgerSnapshot']
+
 /**
  * The languages the transcription session may be told to expect. Derived from the generated
  * schema rather than restated, so the day someone edits `ExpectedLanguage` in `contracts.py`

@@ -315,6 +315,7 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
   const setConnection = useSessionStore((state) => state.setConnection)
   const setTranscriptState = useSessionStore((state) => state.setTranscriptState)
   const setIntent = useSessionStore((state) => state.setIntent)
+  const setSessionId = useSessionStore((state) => state.setSessionId)
 
   useEffect(() => {
     if (!stream) {
@@ -417,7 +418,11 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
       if (!message) {
         return
       }
-      if (message.type === 'transcript.accepted') {
+      if (message.type === 'session.ready') {
+        // Discovery is debounced per session on the server, so the client has to say which
+        // session it is speaking for.
+        setSessionId(message.session_id)
+      } else if (message.type === 'transcript.accepted') {
         // Provider events paint locally with zero round-trip latency. Backend echoes can arrive
         // one delta behind, so they are only the source of truth for the deterministic fixture.
         if (providerTranscriptionSeen) {
@@ -430,7 +435,10 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
           (_current, transcript) => transcript,
         )
       } else if (message.type === 'intent.updated') {
-        setIntent(message.intent)
+        // `should_discover` is the distiller's gate, evaluated server-side and only on a settled
+        // turn. Passing it through is what stops an interim delta — or a turn that did not move
+        // the idea — from ever reaching Cala.
+        setIntent(message.intent, message.transcript, message.should_discover)
       } else if (message.type === 'error' && !message.recoverable) {
         setConnection('error', message.detail)
       }
@@ -585,5 +593,5 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
       peer.close()
       backend?.close()
     }
-  }, [audio, setConnection, setIntent, setTranscriptState, stream])
+  }, [audio, setConnection, setIntent, setSessionId, setTranscriptState, stream])
 }

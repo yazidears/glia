@@ -692,6 +692,28 @@
   }
 }
 
+/*
+ * Discovery results: entity, then answer, then evidence, arriving as a wave rather than a
+ * flash. Same curve as `workspace-enter` and `sticker-enter` so the pane reads as one system.
+ * Staggered with a custom property rather than nth-child, because the number of evidence cards
+ * is whatever Cala cited.
+ */
+.discovery-item {
+  animation: discovery-enter 420ms cubic-bezier(0.2, 0, 0, 1) backwards;
+  animation-delay: calc(var(--discovery-index, 0) * 60ms);
+}
+
+@keyframes discovery-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes listening-dot {
   0%,
   60%,
@@ -797,6 +819,7 @@
   .session-mic-orb,
   .listening-dots span,
   .idea-sticker,
+  .discovery-item,
   .pin-button,
   .pin-button::before,
   .session-settings,
