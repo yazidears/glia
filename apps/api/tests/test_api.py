@@ -1,10 +1,26 @@
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 
+import pytest
 from fastapi.testclient import TestClient
 
 from glia.api import get_token_broker
+from glia.config import get_settings
 from glia.contracts import RealtimeTokenResponse
 from glia.main import app
+
+
+@pytest.fixture
+def fixture_mode(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Pin `demo_mode` for the tests that assert the deterministic distiller.
+
+    Settings are read from the ambient `.env`, so without this a developer flipping `DEMO_MODE`
+    to `live` turns a green suite red — the socket falls back to the local projector when
+    Pioneer is unreachable, which is correct behaviour and a misleading test failure.
+    """
+    monkeypatch.setenv("DEMO_MODE", "fixture")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 class FakeTokenBroker:
@@ -45,7 +61,7 @@ def test_realtime_token_uses_short_lived_broker_contract() -> None:
     }
 
 
-def test_websocket_reconciles_deltas_and_returns_stable_intent() -> None:
+def test_websocket_reconciles_deltas_and_returns_stable_intent(fixture_mode: None) -> None:
     with TestClient(app) as client, client.websocket_connect("/ws") as socket:
         ready = socket.receive_json()
         assert ready["type"] == "session.ready"
