@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { AudioLevelHandle } from '@/hooks/use-audio-level'
 import { cn } from '@/lib/utils'
+import { useSettings } from '@/stores/settings'
 
 /**
  * Two sizes, one component: the hero card and the docked mic differ only in how many bars fit.
@@ -33,7 +34,7 @@ interface WaveformProps {
  *
  * The loop never touches React. It reads the analyser, tweens its own bar levels and paints.
  */
-export function Waveform({ handle, variant, active, className }: WaveformProps) {
+function WaveformCanvas({ handle, variant, active, className }: WaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const { bars: barCount, className: sizeClassName } = VARIANTS[variant]
 
@@ -159,4 +160,18 @@ export function Waveform({ handle, variant, active, className }: WaveformProps) 
   }, [handle, barCount, active])
 
   return <canvas ref={canvasRef} aria-hidden className={cn('block', sizeClassName, className)} />
+}
+
+/**
+ * The setting gates a mount rather than a render branch inside the loop, so switching the meter
+ * back on gives the canvas a fresh effect instead of a stale one, and switching it off tears the
+ * animation frame down rather than leaving it painting into nothing.
+ *
+ * Nothing around it moves when it goes: the mic button has a fixed width and lays its row out
+ * from the orb, so the meter is the only thing that occupies the space it leaves.
+ */
+export function Waveform(props: WaveformProps) {
+  const enabled = useSettings((state) => state.waveform)
+
+  return enabled ? <WaveformCanvas {...props} /> : null
 }

@@ -1,5 +1,6 @@
 import {
   type ClientMessage,
+  type ExpectedLanguage,
   parseRealtimeTokenResponse,
   parseServerMessage,
   type RealtimeTokenRequest,
@@ -8,6 +9,7 @@ import {
 import { useEffect } from 'react'
 import { type AudioLevelHandle, primeAudioContext } from '@/hooks/use-audio-level'
 import { useSessionStore } from '@/stores/session'
+import { useSettings } from '@/stores/settings'
 
 const REQUEST_TIMEOUT_MS = 8_000
 const CLIENT_ID_KEY = 'glia:client-id:v1'
@@ -73,10 +75,10 @@ function requestSignal(parent: AbortSignal): AbortSignal {
   return AbortSignal.any([parent, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
 }
 
-async function fetchToken(signal: AbortSignal) {
+async function fetchToken(signal: AbortSignal, language: ExpectedLanguage) {
   const payload: RealtimeTokenRequest = {
     client_id: clientId(),
-    languages: ['en', 'es', 'ca'],
+    languages: [language],
   }
   const response = await fetch(apiUrl('/api/realtime-token'), {
     method: 'POST',
@@ -114,14 +116,22 @@ function delay(milliseconds: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-async function playFixture(socket: WebSocket, signal: AbortSignal): Promise<void> {
+/**
+ * The offline demo. It emits the same client messages a real provider would, so whoever consumes
+ * them decides where they go — the backend when live discovery is on, the local transcript when
+ * it is off and no message may leave the browser.
+ */
+async function playFixture(
+  signal: AbortSignal,
+  emit: (message: ClientMessage) => void,
+): Promise<void> {
   const itemId = `fixture-${crypto.randomUUID()}`
   const chunks = FIXTURE_TRANSCRIPT.match(/\S+\s*/g) ?? [FIXTURE_TRANSCRIPT]
   for (const chunk of chunks) {
     if (signal.aborted) {
       return
     }
-    send(socket, {
+    emit({
       type: 'transcript.delta',
       event_id: crypto.randomUUID(),
       item_id: itemId,
@@ -130,7 +140,7 @@ async function playFixture(socket: WebSocket, signal: AbortSignal): Promise<void
     await delay(110, signal)
   }
   if (!signal.aborted) {
-    send(socket, {
+    emit({
       type: 'transcript.completed',
       event_id: crypto.randomUUID(),
       item_id: itemId,
@@ -363,6 +373,40 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
       )
     }
 
+    /**
+     * Every client-to-server message the live path can produce goes through here.
+     *
+     * Live discovery is a credit control, so it gates at the call site rather than in a render:
+     * settled speech that never reaches the backend never reaches the distiller gate, and a query
+     * that is never made cannot spend a Cala credit. The setting is read at send time so flipping
+     * it takes effect on the next word instead of on the next reconnect.
+     */
+    const relay = (message: ClientMessage): void => {
+      if (!backend || !useSettings.getState().liveDiscovery) {
+        return
+      }
+      send(backend, message)
+    }
+
+    /** Paint a message the browser has decided not to send. */
+    const paintLocally = (message: ClientMessage): void => {
+      if (message.type === 'transcript.delta') {
+        updateTranscriptItem(
+          message.item_id,
+          message.delta,
+          false,
+          (current, delta) => current + delta,
+        )
+      } else if (message.type === 'transcript.completed') {
+        updateTranscriptItem(
+          message.item_id,
+          message.transcript,
+          true,
+          (_current, transcript) => transcript,
+        )
+      }
+    }
+
     setConnection('connecting')
 
     const onBackendMessage = (event: MessageEvent<string>): void => {
@@ -429,14 +473,12 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
           false,
           (current, delta) => current + delta,
         )
-        if (backend) {
-          send(backend, {
-            type: 'transcript.delta',
-            event_id: providerEventId,
-            item_id: message.item_id,
-            delta: message.delta,
-          })
-        }
+        relay({
+          type: 'transcript.delta',
+          event_id: providerEventId,
+          item_id: message.item_id,
+          delta: message.delta,
+        })
       } else if (
         message.type === 'conversation.item.input_audio_transcription.completed' &&
         typeof message.transcript === 'string'
@@ -448,14 +490,12 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
           true,
           (_current, transcript) => transcript,
         )
-        if (backend) {
-          send(backend, {
-            type: 'transcript.completed',
-            event_id: providerEventId,
-            item_id: message.item_id,
-            transcript: message.transcript,
-          })
-        }
+        relay({
+          type: 'transcript.completed',
+          event_id: providerEventId,
+          item_id: message.item_id,
+          transcript: message.transcript,
+        })
       }
     })
     events.addEventListener('open', () => {
@@ -490,11 +530,19 @@ export function useRealtimeTranscription(audio: AudioLevelHandle): void {
         backend = await openBackendSocket(controller.signal, onBackendMessage)
         let token: RealtimeTokenResponse
         try {
-          token = await fetchToken(controller.signal)
+          token = await fetchToken(controller.signal, useSettings.getState().language)
         } catch (error) {
           if (error instanceof RealtimeProviderError && error.code === 'realtime_not_configured') {
             setConnection('connected')
-            await playFixture(backend, controller.signal)
+            await playFixture(controller.signal, (message) => {
+              if (useSettings.getState().liveDiscovery) {
+                relay(message)
+                return
+              }
+              // In fixture mode the backend echo is the only thing that paints. With discovery
+              // off nothing may leave the browser, so the words land here instead of nowhere.
+              paintLocally(message)
+            })
             return
           }
           throw error
