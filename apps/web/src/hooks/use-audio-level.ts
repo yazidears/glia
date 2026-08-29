@@ -112,11 +112,15 @@ export function useAudioLevel(): AudioLevelHandle {
 
     const source = context.createMediaStreamSource(stream)
     const analyser = context.createAnalyser()
+    const silentSink = context.createGain()
     analyser.fftSize = FFT_SIZE
     analyser.smoothingTimeConstant = SMOOTHING_TIME_CONSTANT
-    // Deliberately not connected to `context.destination`: routing the microphone to the speakers
-    // would put the room into a feedback loop.
+    // Safari may stop pulling an unconnected Web Audio graph. Keep it live through a zero-gain
+    // sink: the analyser receives real samples, while no microphone audio reaches the speakers.
+    silentSink.gain.value = 0
     source.connect(analyser)
+    analyser.connect(silentSink)
+    silentSink.connect(context.destination)
     publish(analyser)
 
     let frame: number | null = null
@@ -163,6 +167,7 @@ export function useAudioLevel(): AudioLevelHandle {
       publish(null)
       source.disconnect()
       analyser.disconnect()
+      silentSink.disconnect()
     }
   }, [stream, publish])
 

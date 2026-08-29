@@ -1,5 +1,6 @@
 import type { ConnectionState } from '@glia/api-client'
 import { Mic } from 'lucide-react'
+import { useEffect } from 'react'
 import { TranscriptList } from '@/components/transcript-list'
 import { Waveform } from '@/components/waveform'
 import { Workpane } from '@/components/workpane'
@@ -30,12 +31,16 @@ function captionFor(micState: MicState, connectionState: ConnectionState): strin
 export function SessionScreen() {
   const { micState, toggle } = useMicrophone()
   const audio = useAudioLevel()
-  useRealtimeTranscription()
+  useRealtimeTranscription(audio)
   const phase = useSessionStore((state) => state.phase)
   const connectionState = useSessionStore((state) => state.connectionState)
   const isSession = phase === 'session'
   const isListening = micState === 'granted'
   const caption = captionFor(micState, connectionState)
+
+  useEffect(() => {
+    document.title = 'Glia'
+  }, [])
 
   return (
     <main className="session-canvas" data-session={isSession}>
@@ -75,7 +80,7 @@ export function SessionScreen() {
             strokeWidth={1.8}
           />
         </span>
-        <Waveform handle={audio} variant={isSession ? 'dock' : 'hero'} />
+        <Waveform active={isListening} handle={audio} variant={isSession ? 'dock' : 'hero'} />
       </button>
     </main>
   )
