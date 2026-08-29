@@ -19,6 +19,8 @@ class Settings(BaseSettings):
 
     openai_api_key: SecretStr | None = None
     openai_transcribe_model: str = "gpt-live-transcribe"
+    #: The synthesis call at Generate. One ordinary chat completion, not the realtime model.
+    openai_synthesis_model: str = "gpt-5.5"
     openai_realtime_token_ttl: int = Field(default=600, ge=10, le=7200)
     openai_request_timeout_seconds: float = Field(default=8.0, gt=0, le=30)
 
@@ -89,6 +91,29 @@ class Settings(BaseSettings):
         "staticflickr.com",
         "api.openverse.org",
     )
+
+    # fal. Two models, chosen by whether any pin carries a URL fal can actually fetch. Defaults
+    # mirror `.env.example` exactly — the local `.env` already sets all four, and a default that
+    # contradicted it would make the demo depend on which file won.
+    fal_key: SecretStr | None = None
+    fal_queue_base_url: str = "https://queue.fal.run"
+    #: Where reference bytes are uploaded before a model is given a URL. Separate host from the
+    #: queue: `rest.fal.ai` serves storage, `queue.fal.run` serves generation.
+    fal_rest_base_url: str = "https://rest.fal.ai"
+    fal_reference_model: str = "fal-ai/flux-pro/kontext/max/multi"
+    fal_fallback_model: str = "fal-ai/flux/schnell"
+    fal_max_reference_images: int = Field(default=4, ge=1, le=8)
+    fal_connect_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    fal_request_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
+    #: The whole submit-and-poll budget. Past this the route returns a typed timeout rather than
+    #: holding a request open; the generation may still complete upstream and is still billed.
+    fal_poll_timeout_seconds: float = Field(default=45.0, gt=0, le=300)
+    fal_poll_interval_seconds: float = Field(default=1.0, gt=0, le=10)
+    #: The whole fetch-and-upload budget for **one** reference. Per reference rather than per
+    #: batch on purpose: a slow origin host should cost that pin, not the ones already in
+    #: flight beside it.
+    fal_reference_timeout_seconds: float = Field(default=20.0, gt=0, le=60)
+    fal_upload_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
 
     @field_validator("image_fetch_user_agent")
     @classmethod

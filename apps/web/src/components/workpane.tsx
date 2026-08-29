@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react'
 import Markdown, { type Components } from 'react-markdown'
 import { CandidateGrid } from '@/components/candidate-grid'
 import { EvidenceCard } from '@/components/evidence-card'
+import { GeneratedImage } from '@/components/generated-image'
 import { IdeaBoard } from '@/components/idea-board'
 import { PanelBoundary } from '@/components/panel-boundary'
 import { DiscoveryError, useDiscovery } from '@/hooks/use-discovery'
@@ -217,11 +218,29 @@ function CalaPanel() {
  * The `IdeaBoard` placeholder still holds the space, but only while nothing real exists at
  * all: no images, nothing in flight, nothing answered. The moment either half has something
  * to show, the demo stickers step aside so they are never mistaken for sourced content.
+ *
+ * A generated image outranks both. It is the last beat of the session and the only place the
+ * prompt that produced it can be read, so it holds the pane until the next one lands.
  */
 export function Workpane({ className }: WorkpaneProps) {
   const output = useSettings((state) => state.output)
+  const generated = useSessionStore((state) => state.generation)
   const candidateCount = useSessionStore((state) => state.candidates.length)
   const { data, isFetching, error } = useDiscovery()
+
+  // A generated image outranks everything: it is the thing the user just asked for, and it is
+  // the only surface where the prompt that produced it can be read. Nothing replaces it until
+  // the next Generate lands — a failure keeps its line in the rail rather than taking this pane.
+  if (generated) {
+    return (
+      <section
+        aria-label="Generated image"
+        className={cn('flex min-h-0 flex-col overflow-y-auto p-5 md:p-8', className)}
+      >
+        <GeneratedImage value={generated} />
+      </section>
+    )
+  }
 
   const showGrid = output === 'images' || output === 'both'
   const showCala = output === 'text' || output === 'both'

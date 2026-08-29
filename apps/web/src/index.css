@@ -84,11 +84,23 @@
 }
 
 .session-canvas {
+  /*
+   * The bottom stack, in one place. The pin rail is a banner on the floor of the viewport and
+   * the microphone docks above it, so the rail's height is the only number that moves — and
+   * `:has()` moves it only while there is a rail to move for.
+   */
+  --pin-rail-height: 98px;
+  --rail-space: 0px;
+
   position: relative;
   min-height: 100dvh;
   overflow: hidden;
   color: #111111;
   background: #f7f7f5;
+}
+
+.session-canvas:has(.pin-rail) {
+  --rail-space: var(--pin-rail-height);
 }
 
 .glia-wordmark {
@@ -354,6 +366,8 @@
   width: 100%;
   height: 100dvh;
   grid-template-columns: minmax(320px, 0.85fr) 2fr;
+  /* `box-sizing: border-box` from preflight keeps the grid at 100dvh and shrinks the rows. */
+  padding-bottom: var(--rail-space);
   animation: workspace-enter 460ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
@@ -361,7 +375,7 @@
   display: flex;
   min-height: 0;
   flex-direction: column;
-  padding: 96px 28px 112px;
+  padding: 96px 28px calc(112px + var(--rail-space));
 }
 
 .transcript-scroll {
@@ -422,7 +436,7 @@
 
 .session-mic[data-docked="true"] {
   width: min(164px, calc(29vw - 56px));
-  transform: translate(calc(-50vw + 28px), calc(33dvh - 28px - 100%));
+  transform: translate(calc(-50vw + 28px), calc(33dvh - 28px - var(--rail-space) - 100%));
 }
 
 .session-mic.is-listening {
@@ -668,6 +682,305 @@
   animation-delay: 140ms;
 }
 
+/*
+ * The pin rail. A banner on the floor of the viewport, full width, below the docked microphone.
+ *
+ * It has its own very light ground rather than sitting transparent on the canvas, because the
+ * thumbnails and the button that consumes them are one control and the surface is what says so.
+ * Nothing above it is overlapped: `--rail-space` reserves the strip in the workspace grid, the
+ * transcript's padding and the microphone's dock offset.
+ */
+.pin-rail {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 65;
+  display: flex;
+  min-height: var(--pin-rail-height);
+  align-items: center;
+  background: #ffffff;
+  box-shadow:
+    0 -1px 0 rgb(17 17 17 / 9%),
+    0 -14px 36px rgb(17 17 17 / 5%);
+  animation: workspace-enter 320ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.pin-rail-inner {
+  display: flex;
+  width: 100%;
+  gap: 20px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 30px;
+}
+
+.pin-rail-pins {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.pin-rail-label {
+  margin: 0;
+  color: #8f8f8f;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+/*
+ * One row, always. Pins scroll sideways rather than wrapping, so the banner's height is a
+ * constant the layout above it can reserve.
+ */
+.pin-thumbs {
+  display: flex;
+  /* Negative margin against the padding: the padding exists only so the horizontal scroller
+     does not clip the unpin badges, which hang off their tiles' corners. */
+  margin: -9px -3px;
+  padding: 9px 3px;
+  gap: 10px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  list-style: none;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.pin-thumbs::-webkit-scrollbar {
+  display: none;
+}
+
+.pin-thumb {
+  position: relative;
+  flex: 0 0 auto;
+  animation: sticker-enter 320ms cubic-bezier(0.2, 0, 0, 1) backwards;
+}
+
+/* The clipping lives here, not on the tile, so the unpin badge can hang off the corner. */
+.pin-thumb-media {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  overflow: hidden;
+  place-items: center;
+  background: #f7f7f5;
+  border-radius: 11px;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 7%),
+    0 2px 6px rgb(17 17 17 / 8%);
+}
+
+.pin-thumb-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/*
+ * A sticker has no public URL, so there is no thumbnail and none is faked. The title is what
+ * actually reaches the prompt, so the title is what the tile shows — clamped, with the full
+ * string on the tile's `title` and in the unpin button's label.
+ */
+.pin-thumb-title {
+  display: -webkit-box;
+  padding: 4px;
+  overflow: hidden;
+  color: #6f6f6f;
+  font-size: 8px;
+  font-weight: 550;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  text-align: center;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+/*
+ * Always on screen, and outside the tile so it covers neither the artwork nor the title.
+ * Unpinning is half of what this rail is for, and an affordance you have to hunt for is not one.
+ */
+.pin-thumb-remove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  place-items: center;
+  color: #ffffff;
+  background: #111111;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px #ffffff;
+  opacity: 0.9;
+  scale: 1;
+  transition-property: opacity, scale, background-color;
+  transition-duration: 140ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.pin-thumb-remove:hover {
+  opacity: 1;
+  scale: 1.12;
+}
+
+.pin-thumb-remove:active {
+  scale: 0.94;
+}
+
+.pin-thumb-remove:focus-visible {
+  opacity: 1;
+  outline: 3px solid rgb(49 89 215 / 40%);
+  outline-offset: 2px;
+}
+
+.pin-thumb-remove svg {
+  width: 11px;
+  height: 11px;
+}
+
+.pin-rail-action {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.pin-rail-error {
+  max-width: 42ch;
+  margin: 0;
+  color: #8f8f8f;
+  font-size: 12px;
+  font-weight: 430;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+  text-align: right;
+  text-wrap: pretty;
+}
+
+.pin-generate {
+  padding: 13px 22px;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 550;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  background: #111111;
+  border: 0;
+  border-radius: 999px;
+  box-shadow:
+    0 1px 1px rgb(17 17 17 / 5%),
+    0 9px 28px rgb(17 17 17 / 14%);
+  scale: 1;
+  transition-property: scale, opacity, background-color;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.pin-generate:hover:not(:disabled) {
+  scale: 1.02;
+}
+
+.pin-generate:active:not(:disabled) {
+  scale: 0.97;
+}
+
+.pin-generate:focus-visible {
+  outline: 3px solid rgb(49 89 215 / 25%);
+  outline-offset: 3px;
+}
+
+.pin-generate:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* A quiet pulse rather than a spinner: a spinner asks to be watched, and this takes a moment. */
+.pin-generate[data-generating="true"] {
+  animation: generate-pulse 1.6s ease-in-out infinite;
+  opacity: 1;
+}
+
+@keyframes generate-pulse {
+  0%,
+  100% {
+    background: #111111;
+  }
+  50% {
+    background: #4a4a4a;
+  }
+}
+
+.generated-figure {
+  display: flex;
+  margin: 0;
+  gap: 18px;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.generated-image {
+  max-width: min(100%, 640px);
+  max-height: 58dvh;
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 5%),
+    0 4px 12px rgb(17 17 17 / 8%),
+    0 22px 60px rgb(17 17 17 / 12%);
+  object-fit: contain;
+}
+
+.generated-caption {
+  display: flex;
+  max-width: 62ch;
+  flex-direction: column;
+  gap: 7px;
+}
+
+/*
+ * The prompt, verbatim. Small and muted because it sits under the image, never truncated or
+ * ellipsised: it is the exact string that produced what is above it, and a shortened version of
+ * it would be a different claim.
+ */
+.generated-prompt {
+  margin: 0;
+  color: #6f6f6f;
+  font-size: 13px;
+  font-weight: 430;
+  letter-spacing: -0.01em;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.generated-meta {
+  display: flex;
+  margin: 0;
+  gap: 7px;
+  flex-wrap: wrap;
+  color: #a4a4a4;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1;
+}
+
+/* A note, not an error: the image above is real, it simply had one fewer pin to work from. */
+.generated-dropped {
+  margin: 0;
+  color: #c08a52;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.4;
+}
+
 @keyframes workspace-enter {
   from {
     opacity: 0;
@@ -892,11 +1205,32 @@
 
   .transcript-column {
     order: 2;
-    padding: 20px 17px 104px;
+    padding: 20px 17px calc(104px + var(--rail-space));
   }
 
   .idea-board {
     order: 1;
+  }
+
+  .session-canvas {
+    --pin-rail-height: 92px;
+  }
+
+  .pin-rail-inner {
+    gap: 12px;
+    padding: 0 17px;
+  }
+
+  .pin-rail-error {
+    display: none;
+  }
+
+  /*
+   * The workpane is half the viewport here, and the prompt is not optional reading. Give the
+   * image less room so the verbatim prompt stays on screen rather than below the fold.
+   */
+  .generated-image {
+    max-height: 27dvh;
   }
 
   .session-mic {
@@ -906,7 +1240,7 @@
 
   .session-mic[data-docked="true"] {
     width: calc(100vw - 34px);
-    transform: translate(calc(-50vw + 17px), calc(32dvh - 17px - 100%));
+    transform: translate(calc(-50vw + 17px), calc(32dvh - 17px - var(--rail-space) - 100%));
   }
 
   .idea-sticker--1 {
@@ -955,6 +1289,10 @@
   .idea-sticker,
   .discovery-item,
   .candidate-tile,
+  .pin-rail,
+  .pin-thumb,
+  .pin-thumb-remove,
+  .pin-generate,
   .pin-button,
   .pin-button::before,
   .session-settings,

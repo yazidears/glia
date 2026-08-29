@@ -102,11 +102,23 @@ def _keys(candidate: Candidate) -> list[str]:
 
 
 def proxied(candidates: Iterable[Candidate], *, proxy_base: str) -> list[Candidate]:
-    """Rewrite image_url through our own proxy, leaving the origin as source_url."""
+    """Rewrite image_url through our own proxy, keeping the origin file on the candidate.
+
+    This is the one place a candidate's image URL changes, so it is the one place that can
+    truthfully record what it was. `origin_image_url` is set here rather than at each lane
+    because "the URL before the rewrite" is a fact about the rewrite: a lane cannot get it
+    wrong, and a candidate that never passes through here keeps its null.
+
+    The origin is not `source_url` and never was — that is a landing page, and handing it to an
+    image fetcher returns HTML. Generation needs the file, so the file is what is carried.
+    """
     base = proxy_base.rstrip("/")
     return [
         candidate.model_copy(
-            update={"image_url": f"{base}/api/image?url={quote(candidate.image_url, safe='')}"}
+            update={
+                "image_url": f"{base}/api/image?url={quote(candidate.image_url, safe='')}",
+                "origin_image_url": candidate.image_url,
+            }
         )
         for candidate in candidates
     ]

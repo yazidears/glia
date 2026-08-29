@@ -17,6 +17,51 @@ export interface TranscriptSegment {
  */
 export type SessionPhase = 'hero' | 'session'
 
+/**
+ * One pinned reference, in the shape the whole app agrees on.
+ *
+ * Two image URLs, because display and conditioning are two different jobs. `imageUrl` is what
+ * this app renders — for a grid tile that is the backend's `/api/image` proxy, which is exactly
+ * why it is useless for generation: fal fetches over the internet and cannot reach localhost.
+ * `originImageUrl` is the file on the origin host, and it is the only one the server turns into
+ * a reference image.
+ *
+ * Both are nullable and both are load-bearing. The board's stickers are inline SVG with no URL
+ * at all, so they pin as null twice over — which is why there is one pin path and not two: the
+ * difference between a pin that conditions the image and a pin that only steers the prompt is a
+ * value, not a type.
+ */
+export interface PinnedRef {
+  id: string
+  title: string
+  lane: string
+  imageUrl: string | null
+  originImageUrl: string | null
+  sourceUrl: string | null
+}
+
+/** What the workpane has to show for the generated image. */
+export interface GeneratedImage {
+  imageUrl: string
+  /** Verbatim, exactly what the server sent to fal. Shown, never paraphrased. */
+  prompt: string
+  model: string
+  referenceCount: number
+  /**
+   * Ids of pins that did not condition the image, because the server could not fetch or
+   * re-host them. A dropped pin never fails the generation, so this list is the only way the
+   * user finds out — and it is shown rather than swallowed for exactly that reason.
+   */
+  unavailableReferences: string[]
+}
+
+export interface GenerationFailure {
+  message: string
+  correlationId: string
+}
+
+export type GenerationStatus = 'idle' | 'generating' | 'ready' | 'error'
+
 interface SessionState {
   micState: MicState
   /** The live capture stream while `micState` is `granted`, and null in every other state. */
@@ -54,6 +99,16 @@ interface SessionState {
   candidates: Candidate[]
   /** The subject these candidates belong to. A new one empties the grid. */
   candidateSubject: string
+  /** The conditioning input, in click order. Empty means the rail is not on screen at all. */
+  pinned: PinnedRef[]
+  togglePin: (ref: PinnedRef) => void
+  clearPins: () => void
+  generationStatus: GenerationStatus
+  generation: GeneratedImage | null
+  generationError: GenerationFailure | null
+  startGenerating: () => void
+  settleGeneration: (generation: GeneratedImage) => void
+  failGeneration: (failure: GenerationFailure) => void
   setConnection: (connectionState: ConnectionState, connectionError?: string | null) => void
   setSessionId: (sessionId: string) => void
   setTranscriptState: (transcript: string, transcriptSegments: TranscriptSegment[]) => void
@@ -99,6 +154,24 @@ export const useSessionStore = create<SessionState>()((set) => ({
   discoveryTranscript: '',
   candidates: [],
   candidateSubject: '',
+  pinned: [],
+  generationStatus: 'idle',
+  generation: null,
+  generationError: null,
+  togglePin: (ref) =>
+    set((state) => ({
+      pinned: state.pinned.some((pin) => pin.id === ref.id)
+        ? state.pinned.filter((pin) => pin.id !== ref.id)
+        : [...state.pinned, ref],
+    })),
+  clearPins: () => set({ pinned: [] }),
+  // The previous result stays on screen while the next one runs. The rail is the only place
+  // that says "generating", so the workpane never blanks out the image the user is comparing
+  // against — and the board stays reachable, which is where the next pin comes from.
+  startGenerating: () => set({ generationStatus: 'generating', generationError: null }),
+  settleGeneration: (generation) =>
+    set({ generationStatus: 'ready', generation, generationError: null }),
+  failGeneration: (generationError) => set({ generationStatus: 'error', generationError }),
   setConnection: (connectionState, connectionError = null) =>
     set({ connectionState, connectionError }),
   setSessionId: (sessionId) => set({ sessionId }),
@@ -155,5 +228,9 @@ export const useSessionStore = create<SessionState>()((set) => ({
       discoveryTranscript: '',
       candidates: [],
       candidateSubject: '',
+      pinned: [],
+      generationStatus: 'idle',
+      generation: null,
+      generationError: null,
     }),
 }))

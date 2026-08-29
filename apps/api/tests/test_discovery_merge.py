@@ -113,3 +113,17 @@ def test_the_proxy_rewrite_keeps_the_origin_as_source_url() -> None:
         "https%3A%2F%2Fupload.wikimedia.org%2Fa%20b.jpg%3Fx%3D1"
     )
     assert rewritten.source_url == original.source_url
+
+
+def test_the_proxy_rewrite_carries_the_origin_image_url() -> None:
+    """Without this the origin file is simply lost, and a pin cannot condition anything.
+
+    `source_url` is not a substitute: it is the landing page, and generation needs the file.
+    """
+    original = candidate("a", image_url="https://upload.wikimedia.org/a.jpg")
+
+    rewritten = proxied([original], proxy_base="https://api.glia.test")[0]
+
+    assert rewritten.origin_image_url == "https://upload.wikimedia.org/a.jpg"
+    assert rewritten.origin_image_url != rewritten.source_url
+    assert "/api/image" not in (rewritten.origin_image_url or "")

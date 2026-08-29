@@ -1,7 +1,7 @@
 import { Pin } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
-import { useSessionStore } from '@/stores/session'
+import { type PinnedRef, useSessionStore } from '@/stores/session'
 
 /**
  * The placeholder reference board: six hand-drawn stickers that reveal as the transcript grows,
@@ -12,6 +12,9 @@ import { useSessionStore } from '@/stores/session'
  * Openverse (Lane B) plus images extracted from the pages Cala cites (Lane A) replace it. The
  * `demo` badge is load-bearing until then: nothing here is sourced, and the UI must not imply
  * that it is.
+ *
+ * Pinning is no longer local state. A pin is a conditioning input for Generate, so it belongs to
+ * the session rather than to this component — the rail and the backend both read it from there.
  */
 
 interface IdeaBoardProps {
@@ -117,8 +120,9 @@ function StickerArt({ variant }: { variant: number }) {
 export function IdeaBoard({ className }: IdeaBoardProps) {
   const transcript = useSessionStore((state) => state.transcript)
   const setProcessedWordCount = useSessionStore((state) => state.setProcessedWordCount)
+  const pinned = useSessionStore((state) => state.pinned)
+  const togglePin = useSessionStore((state) => state.togglePin)
   const [revealedCount, setRevealedCount] = useState(0)
-  const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => new Set())
   const wordCount = transcript.trim() ? transcript.trim().split(/\s+/).length : 0
   const suggestedCount =
     wordCount < 3 ? 0 : Math.min(STICKERS.length, Math.ceil((wordCount - 2) / 3) * 2)
@@ -131,17 +135,17 @@ export function IdeaBoard({ className }: IdeaBoardProps) {
     setProcessedWordCount(wordCount)
   }, [revealedCount, setProcessedWordCount, suggestedCount, wordCount])
 
-  const togglePin = (id: string): void => {
-    setPinnedIds((current) => {
-      const next = new Set(current)
-      if (next.has(id)) {
-        next.delete(id)
-      } else {
-        next.add(id)
-      }
-      return next
-    })
-  }
+  // A sticker is inline SVG with no URL of any kind, so both URLs pin as null. There is no
+  // origin file for the server to fetch and re-host; the honest consequence is that this pin
+  // steers the prompt through its title and is not counted as a reference image.
+  const refFor = (sticker: StickerSpec): PinnedRef => ({
+    id: sticker.id,
+    title: sticker.title,
+    lane: sticker.lane,
+    imageUrl: null,
+    originImageUrl: null,
+    sourceUrl: null,
+  })
 
   return (
     <section
@@ -149,7 +153,7 @@ export function IdeaBoard({ className }: IdeaBoardProps) {
       className={cn('idea-board min-h-0 overflow-hidden p-3 md:p-6', className)}
     >
       {STICKERS.slice(0, revealedCount).map((sticker, index) => {
-        const isPinned = pinnedIds.has(sticker.id)
+        const isPinned = pinned.some((pin) => pin.id === sticker.id)
         return (
           <figure
             className={cn('idea-sticker', `idea-sticker--${index + 1}`, isPinned && 'is-pinned')}
@@ -165,7 +169,7 @@ export function IdeaBoard({ className }: IdeaBoardProps) {
               className="pin-button"
               aria-label={`${isPinned ? 'Unpin' : 'Pin'} ${sticker.title}`}
               aria-pressed={isPinned}
-              onClick={() => togglePin(sticker.id)}
+              onClick={() => togglePin(refFor(sticker))}
             >
               <Pin aria-hidden="true" strokeWidth={1.8} />
             </button>

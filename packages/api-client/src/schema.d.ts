@@ -114,6 +114,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate
+         * @description Transcript + intent + pins → one prompt → one image.
+         *
+         *     Two properties are load-bearing and everything else here serves them.
+         *
+         *     The pins are a real input. Every pin's title reaches the synthesis, and every pin carrying
+         *     an origin image URL is additionally fetched here and re-hosted on fal's storage, so that
+         *     what goes out as `image_urls` is always a URL fal can read. Our own `/api/image` proxy is
+         *     never sent: fal cannot reach localhost, and the pin's display URL is not its origin.
+         *
+         *     A pin that cannot be fetched or uploaded is dropped by id rather than fatal. The generation
+         *     runs on the pins that worked, `reference_count` reports what actually conditioned the image,
+         *     and `unavailable_references` names the ones that did not.
+         *
+         *     The prompt is a deliverable. It is returned verbatim on every outcome that reached fal,
+         *     including the timeout, because it is the answer to "here is what we understood you to
+         *     mean" and that answer survives a generation that did not land.
+         */
+        post: operations["generate_v1_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -217,6 +252,37 @@ export interface components {
             /** Carried Answer */
             carried_answer: boolean;
         };
+        /** GenerateRequest */
+        GenerateRequest: {
+            /** Session Id */
+            session_id: string;
+            /** Transcript */
+            transcript: string;
+            /** Pins */
+            pins?: components["schemas"]["PinnedRef"][];
+        };
+        /** GenerateResponse */
+        GenerateResponse: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "timeout" | "already_generating" | "reference_unavailable";
+            /** Session Id */
+            session_id: string;
+            /** Image Url */
+            image_url: string | null;
+            /** Prompt */
+            prompt: string;
+            /** Model */
+            model: string;
+            /** Reference Count */
+            reference_count: number;
+            /** Unavailable References */
+            unavailable_references?: string[];
+            /** Correlation Id */
+            correlation_id: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -279,6 +345,21 @@ export interface components {
             search_calls: number;
             /** Entity Calls */
             entity_calls: number;
+        };
+        /** PinnedRef */
+        PinnedRef: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Lane */
+            lane: string;
+            /** Image Url */
+            image_url?: string | null;
+            /** Origin Image Url */
+            origin_image_url?: string | null;
+            /** Source Url */
+            source_url?: string | null;
         };
         /** RealtimeTokenRequest */
         RealtimeTokenRequest: {
@@ -442,6 +523,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_v1_generate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerateResponse"];
                 };
             };
             /** @description Validation Error */
