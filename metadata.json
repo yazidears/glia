@@ -1,0 +1,51 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "01M171NF58TVFKCBZG4G7NW15Q",
+  "strategy": "manual-commit",
+  "branch": "claude/revive-image-lanes-3f0a08",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "apps/api/glia/api.py",
+    "apps/api/glia/config.py",
+    "apps/api/glia/contracts.py",
+    "apps/api/glia/discovery/fetch.py",
+    "apps/api/glia/discovery/merge.py",
+    "apps/api/glia/generation/__init__.py",
+    "apps/api/glia/generation/fal.py",
+    "apps/api/glia/generation/fal_storage.py",
+    "apps/api/glia/generation/fixture.py",
+    "apps/api/glia/generation/references.py",
+    "apps/api/glia/generation/synthesis.py",
+    "apps/api/tests/test_discovery_merge.py",
+    "apps/api/tests/test_generate.py",
+    "apps/api/tests/test_image_proxy.py",
+    "apps/web/src/components/generated-image.tsx",
+    "apps/web/src/components/idea-board.tsx",
+    "apps/web/src/components/pin-rail.tsx",
+    "apps/web/src/components/workpane.tsx",
+    "apps/web/src/hooks/use-generate.ts",
+    "apps/web/src/index.css",
+    "apps/web/src/screens/session-screen.tsx",
+    "apps/web/src/stores/session.ts",
+    "docs/SECURITY.md",
+    "packages/api-client/openapi.json",
+    "packages/api-client/src/index.ts",
+    "packages/api-client/src/schema.d.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 52,
+    "cache_creation_tokens": 19393,
+    "cache_read_tokens": 8082551,
+    "output_tokens": 9923,
+    "api_call_count": 26
+  }
+}
