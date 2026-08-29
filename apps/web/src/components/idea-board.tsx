@@ -135,14 +135,15 @@ export function IdeaBoard({ className }: IdeaBoardProps) {
     setProcessedWordCount(wordCount)
   }, [revealedCount, setProcessedWordCount, suggestedCount, wordCount])
 
-  // A sticker is inline SVG with no public URL, so it pins with `imageUrl: null`. fal fetches
-  // references over the internet and cannot reach it; the honest consequence is that this pin
+  // A sticker is inline SVG with no URL of any kind, so both URLs pin as null. There is no
+  // origin file for the server to fetch and re-host; the honest consequence is that this pin
   // steers the prompt through its title and is not counted as a reference image.
   const refFor = (sticker: StickerSpec): PinnedRef => ({
     id: sticker.id,
     title: sticker.title,
     lane: sticker.lane,
     imageUrl: null,
+    originImageUrl: null,
     sourceUrl: null,
   })
 

@@ -87,6 +87,9 @@ class Settings(BaseSettings):
     # contradicted it would make the demo depend on which file won.
     fal_key: SecretStr | None = None
     fal_queue_base_url: str = "https://queue.fal.run"
+    #: Where reference bytes are uploaded before a model is given a URL. Separate host from the
+    #: queue: `rest.fal.ai` serves storage, `queue.fal.run` serves generation.
+    fal_rest_base_url: str = "https://rest.fal.ai"
     fal_reference_model: str = "fal-ai/flux-pro/kontext/max/multi"
     fal_fallback_model: str = "fal-ai/flux/schnell"
     fal_max_reference_images: int = Field(default=4, ge=1, le=8)
@@ -96,6 +99,11 @@ class Settings(BaseSettings):
     #: holding a request open; the generation may still complete upstream and is still billed.
     fal_poll_timeout_seconds: float = Field(default=45.0, gt=0, le=300)
     fal_poll_interval_seconds: float = Field(default=1.0, gt=0, le=10)
+    #: The whole fetch-and-upload budget for **one** reference. Per reference rather than per
+    #: batch on purpose: a slow origin host should cost that pin, not the ones already in
+    #: flight beside it.
+    fal_reference_timeout_seconds: float = Field(default=20.0, gt=0, le=60)
+    fal_upload_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
 
 
 @lru_cache(maxsize=1)

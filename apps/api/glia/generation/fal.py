@@ -27,7 +27,6 @@ import httpx
 import structlog
 
 from glia.config import Settings
-from glia.contracts import PinnedRef
 
 logger = structlog.get_logger(__name__)
 
@@ -43,16 +42,18 @@ class FalTimedOut(Exception):
 
 
 class FalReferenceUnavailable(Exception):
-    """fal could not fetch one of the pinned reference images.
+    """fal could not fetch one of the reference images it was handed.
 
     Verified live on 29 Aug 2026: the queue reports such a request as ``COMPLETED``, and the
     rejection only appears as a 422 from the *result* endpoint with
     ``detail[].type == "file_download_error"``. So this is not a transport failure and retrying
     it never helps — the URL is one fal cannot reach.
 
-    It is typed separately because it is the one generation failure the user can act on: the
-    offending pin is theirs to unpin. Collapsing it into "temporarily unavailable" would be
-    both wrong and unhelpful.
+    Since ``generation/references.py`` re-hosts every reference on fal's own storage before
+    submitting, this should now be unreachable in practice. It is kept, and kept typed, because
+    the alternative to a wrong claim about the future is a path that still tells the truth: it
+    is the one generation failure the user can act on, and collapsing it into "temporarily
+    unavailable" would be both wrong and unhelpful.
     """
 
 
@@ -61,12 +62,12 @@ class FalUpstreamError(Exception):
 
 
 def is_public_https(url: str | None) -> bool:
-    """Whether fal could actually fetch this.
+    """Whether this URL is one the server may fetch on fal's behalf.
 
-    fal pulls reference images over the internet, so anything that is not public https is not a
-    reference: no data: URIs, no blob:, no localhost, no private ranges. A URL that fails this
-    is not passed off as a reference and not silently repaired — the pin still steers the
-    prompt through its title, and `reference_count` reports the truth.
+    Anything that is not public https is not a reference: no data: URIs, no blob:, no
+    localhost, no private ranges — which is exactly what rules out our own `/api/image` proxy.
+    A URL that fails this is not passed off as a reference and not silently repaired; the pin
+    still steers the prompt through its title, and `reference_count` reports the truth.
     """
     if not url:
         return False
@@ -81,12 +82,6 @@ def is_public_https(url: str | None) -> bool:
     except ValueError:
         return True
     return not (address.is_private or address.is_loopback or address.is_link_local)
-
-
-def reference_urls(pins: list[PinnedRef], limit: int) -> list[str]:
-    """The pins fal can genuinely condition on, capped at FAL_MAX_REFERENCE_IMAGES."""
-    usable = [pin.image_url for pin in pins if is_public_https(pin.image_url)]
-    return [url for url in usable if url is not None][:limit]
 
 
 class FalClient:
@@ -121,9 +116,9 @@ class FalClient:
     def release(self, session_id: str) -> None:
         self._in_flight.discard(session_id)
 
-    def model_for(self, references: list[str]) -> str:
+    def model_for(self, reference_count: int) -> str:
         """References or no references — that is the whole model choice."""
-        if references:
+        if reference_count:
             return self._settings.fal_reference_model
         return self._settings.fal_fallback_model
 

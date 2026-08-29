@@ -12,13 +12,21 @@ function apiUrl(path: string): string {
   return `${base}${path}`
 }
 
-/** The one place the store's camelCase pin becomes the wire's snake_case pin. */
+/**
+ * The one place the store's camelCase pin becomes the wire's snake_case pin.
+ *
+ * Both URLs are sent and they are not interchangeable: `image_url` may be the backend's own
+ * `/api/image` proxy and is display-only, while `origin_image_url` is the file the server
+ * fetches and re-hosts on fal. Sending the proxy URL as the origin would put a localhost URL
+ * in front of fal's fetcher, which is the exact failure this pair exists to prevent.
+ */
 function toPayload(pin: PinnedRef): PinnedRefPayload {
   return {
     id: pin.id,
     title: pin.title,
     lane: pin.lane,
     image_url: pin.imageUrl,
+    origin_image_url: pin.originImageUrl,
     source_url: pin.sourceUrl,
   }
 }
@@ -37,10 +45,31 @@ function correlationIdOf(body: unknown): string {
 const REFUSALS: Record<Exclude<GenerateResponse['status'], 'ok'>, string> = {
   timeout: 'Generation ran past 45 seconds and we stopped waiting.',
   already_generating: 'A generation is already running for this session.',
-  // The only one the user can fix, so it says what to do rather than what went wrong. Measured
-  // live: fal cannot fetch upload.wikimedia.org, which answers its blank User-Agent with a 403.
-  reference_unavailable:
-    'One pinned image could not be fetched for conditioning — unpin it to generate without it.',
+  // Overridden below whenever the server named the pins. This is the fallback for the case
+  // where it could not.
+  reference_unavailable: 'The pinned images could not be used for conditioning.',
+}
+
+/**
+ * The refusal, in the user's terms.
+ *
+ * `reference_unavailable` is the only one they can act on, so it says what to do rather than
+ * what went wrong — and it counts, because telling someone to unpin "them" when exactly one pin
+ * is at fault is a worse instruction than telling them to unpin "it". Reached only when fal
+ * rejects references the server had already fetched and re-hosted; a pin the server itself
+ * could not fetch is dropped instead, and the generation still produces an image.
+ */
+function refusalFor(result: GenerateResponse): string {
+  if (result.status === 'ok') {
+    return ''
+  }
+  const dropped = result.unavailable_references?.length ?? 0
+  if (result.status === 'reference_unavailable' && dropped > 0) {
+    return dropped === 1
+      ? 'One pinned image could not be used for conditioning — unpin it to generate without it.'
+      : `${dropped} pinned images could not be used for conditioning — unpin them to generate without them.`
+  }
+  return REFUSALS[result.status]
 }
 
 async function requestGeneration(payload: GenerateRequest): Promise<GenerateResponse> {
@@ -79,10 +108,10 @@ export interface GenerateHandle {
 /**
  * Turns the session into one image.
  *
- * The pins are sent whole, including the ones with no `imageUrl`. That is the honest shape of
- * the degradation: the server folds every pin's title into the synthesis and passes only the
- * fetchable ones to fal as references, then reports `reference_count` so nothing here has to
- * guess which happened.
+ * The pins are sent whole, including the ones with no URL at all. That is the honest shape of
+ * the degradation: the server folds every pin's title into the synthesis, fetches and re-hosts
+ * the ones carrying an origin image, and reports `reference_count` and `unavailable_references`
+ * so nothing here has to guess which happened.
  *
  * The in-flight guard is doubled deliberately. This one keeps the button honest; the server's
  * is the one that actually protects the account, because fal allows two concurrent requests and
@@ -113,7 +142,7 @@ export function useGenerate(): GenerateHandle {
       .then((result) => {
         if (result.status !== 'ok') {
           failGeneration({
-            message: REFUSALS[result.status],
+            message: refusalFor(result),
             correlationId: result.correlation_id,
           })
           return
@@ -130,6 +159,9 @@ export function useGenerate(): GenerateHandle {
           prompt: result.prompt,
           model: result.model,
           referenceCount: result.reference_count,
+          // Optional on the wire because it defaults to empty server-side, and "the server did
+          // not say" and "nothing was dropped" are the same claim here.
+          unavailableReferences: result.unavailable_references ?? [],
         })
       })
       .catch((error: unknown) => {

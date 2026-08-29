@@ -34,6 +34,14 @@ class ImageStream:
     chunks: AsyncIterator[bytes]
 
 
+@dataclass(frozen=True)
+class ImageBytes:
+    """A whole image in memory, for the one caller that cannot relay a stream."""
+
+    content_type: str
+    data: bytes
+
+
 def host_allowed(host: str, allowlist: tuple[str, ...]) -> bool:
     """Suffix match on label boundaries, so `evil-wikimedia.org` never matches."""
     normalised = host.lower().rstrip(".")
@@ -67,6 +75,28 @@ def validate_image_url(raw: str, allowlist: tuple[str, ...]) -> str:
     return raw
 
 
+def resolves_publicly(host: str) -> bool:
+    """Whether every address this host resolves to is a public one.
+
+    The address rules live here and only here. Any outbound request built from a URL we did not
+    hardcode goes through this, so that there is one definition of "not public" to keep correct
+    rather than one per call site.
+    """
+    try:
+        resolved = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
+    except socket.gaierror:
+        return False
+    if not resolved:
+        return False
+    for entry in resolved:
+        address = ipaddress.ip_address(str(entry[4][0]))
+        if address.is_private or address.is_loopback or address.is_link_local:
+            return False
+        if address.is_reserved or address.is_multicast or address.is_unspecified:
+            return False
+    return True
+
+
 def _reject_private_addresses(host: str) -> None:
     """Resolve before connecting and refuse anything that is not public.
 
@@ -74,18 +104,8 @@ def _reject_private_addresses(host: str) -> None:
     began life in a remote response. This function, plus the host allowlist and
     the refusal to follow redirects, is the control that answers that finding.
     """
-    try:
-        resolved = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
-    except socket.gaierror as error:
-        raise FetchRejected("Host does not resolve") from error
-    if not resolved:
-        raise FetchRejected("Host does not resolve")
-    for entry in resolved:
-        address = ipaddress.ip_address(str(entry[4][0]))
-        if address.is_private or address.is_loopback or address.is_link_local:
-            raise FetchRejected("Host resolves to a non-public address")
-        if address.is_reserved or address.is_multicast or address.is_unspecified:
-            raise FetchRejected("Host resolves to a non-public address")
+    if not resolves_publicly(host):
+        raise FetchRejected("Host does not resolve to a public address")
 
 
 class ImageFetcher:
@@ -145,6 +165,27 @@ class ImageFetcher:
             content_type=content_type,
             chunks=self._stream(client, response),
         )
+
+    async def read(self, raw_url: str) -> ImageBytes:
+        """The same guards as `open`, buffered — for uploading rather than relaying.
+
+        The proxy can hand a browser a stream. A reference image cannot be streamed anywhere:
+        fal wants the bytes, so they are collected here, still through the one fetcher that
+        owns the allowlist, the resolved-address check, the redirect refusal and the cap.
+
+        `open` stops yielding at the cap rather than raising, so a body that reaches it is
+        either exactly the cap or was truncated at it. A truncated image is not a reference
+        worth conditioning on, and the two are indistinguishable, so both are refused.
+        """
+        stream = await self.open(raw_url)
+        buffer = bytearray()
+        async for chunk in stream.chunks:
+            buffer += chunk
+        if len(buffer) >= self._max_bytes:
+            raise FetchFailed("Upstream image exceeds the size cap")
+        if not buffer:
+            raise FetchFailed("Upstream image host returned an empty body")
+        return ImageBytes(content_type=stream.content_type, data=bytes(buffer))
 
     async def _stream(
         self, client: httpx.AsyncClient, response: httpx.Response
