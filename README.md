@@ -14,6 +14,7 @@ Then read, in order:
 2. [`IDEAS.md`](IDEAS.md) — three scoped concepts, with the safest option first.
 3. [`PITCH.md`](PITCH.md) — the demo narrative and fallback script.
 4. [`PROJECT_BRIEF.md`](PROJECT_BRIEF.md) — fill this in during the first 20 minutes after the opening.
+5. [`ENTIRE_CHALLENGE.md`](ENTIRE_CHALLENGE.md) — checkpoint workflow for the side challenge.
 
 The folder deliberately does not contain a product scaffold yet. The event brief and sponsor APIs are handed out on the day; choosing the final product before hearing them would create rework. Once the brief is known, use Bun as the default JavaScript runtime for fast setup; Node and npm are also available.
 
