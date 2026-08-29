@@ -1,0 +1,30 @@
+name: Aikido Security
+
+on:
+  pull_request:
+    branches: ['*']
+  push:
+    branches: [main]
+
+jobs:
+  aikido-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fails the build on NEW critical dependency findings.
+      # SAST and IaC gating require a paid plan — findings still land in the
+      # dashboard, they just cannot block. See docs/PARTNERS.md.
+      - name: Detect new vulnerabilities
+        uses: AikidoSec/github-actions-workflow@v1.0.13
+        with:
+          secret-key: ${{ secrets.AIKIDO_SECRET_KEY }}
+          fail-on-timeout: true
+          fail-on-dependency-scan: true
+          fail-on-sast-scan: false
+          fail-on-iac-scan: false
+          minimum-severity: 'CRITICAL'
+          timeout-seconds: 180
+          post-scan-status-comment: 'only_if_new_findings'
+          post-sast-review-comments: 'off'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
