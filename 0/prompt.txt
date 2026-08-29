@@ -1,0 +1,107 @@
+## G-8/B-3 · Pin rail and Generate
+
+Frontend + backend. One agent. 70 minutes to freeze — build the beat, not the platform.
+
+OBJECTIVE
+
+Glia can hear you and can show you what Cala cited. It cannot yet make the thing the
+product is named for. Generate is the last beat of the demo: the transcript, the
+distilled idea and the images you kept become one prompt and one original image.
+
+Two properties matter more than polish. Pins must be a real input — the rail says
+"conditioning input" and it has to be true, or the whole pinning interaction is a mood
+board pretending to be a control. And the final prompt is a deliverable: whatever goes
+to fal is shown to the user verbatim. If we cannot show it, we do not send it.
+
+CONTEXT
+
+Read docs/PARTNERS.md §4 (fal) before writing the client. Read apps/web/src/components/
+idea-board.tsx, screens/session-screen.tsx, stores/session.ts, and apps/api/glia/
+{config.py,contracts.py,api.py,discovery/cala.py} — match their style exactly.
+
+Known constraint, do not fight it: the board's stickers are inline SVG with no public
+URL. fal fetches reference images over the internet, so it cannot use them, and neither
+can it reach anything on localhost. Design for that, honestly, per the DEGRADATION
+section below.
+
+TASK
+
+1. Pin state moves into the session store. idea-board.tsx currently holds pinnedIds in
+   local useState — lift it to `pinned: PinnedRef[]` with togglePin/clearPins.
+
+     PinnedRef { id, title, lane, imageUrl: string | null, sourceUrl: string | null }
+
+   The board passes imageUrl: null for stickers. Lane B's tiles will pass a real URL
+   into the identical shape — do not build a second pin path for them.
+
+2. The rail. Fixed to the bottom of the viewport, above the mic composer, full width,
+   borderless, same neutral palette. Left: pinned thumbnails ~48px, each with an unpin
+   affordance on hover and focus. Label the group `N pins · conditioning input`, not
+   "Pinned" — the wording states the causal direction the UI is claiming. Right: a
+   single `Generate` button. The rail is absent at zero pins and animates in with the
+   existing CSS conventions in index.css (`workspace-enter`/`sticker-enter`); main
+   dropped the motion dependency, do not resurrect it.
+
+3. `POST /v1/generate`, body { session_id, transcript, pins: PinnedRef[] }, two steps:
+
+   a. Synthesis. One OpenAI call using the existing OPENAI_SYNTHESIS_MODEL setting.
+      Input: the transcript, the current VisualIntent from the distiller, and the pin
+      titles. Output: ONE concise image prompt, under 80 words, describing subject,
+      mood, style, palette and composition. Constrain it with a Pydantic schema so a
+      malformed prompt is a validation error, not a broken generation. Never send the
+      raw transcript to fal — the summary is the point.
+
+   b. Generation. Submit to fal with X-Fal-Store-IO: 0.
+      - Pins carrying a public https imageUrl → FAL_REFERENCE_MODEL
+        (flux-pro/kontext/max/multi) with image_urls, capped at FAL_MAX_REFERENCE_IMAGES.
+      - No public URLs → FAL_FALLBACK_MODEL (flux/schnell), text only.
+      Use fal's queue endpoint and POLL it. Do NOT build a webhook: it needs a publicly
+      reachable callback URL and we are on localhost, so it cannot work today. Cap the
+      poll at ~45s, then return a typed timeout.
+      fal's concurrency limit is 2 on a new account: allow exactly ONE generation in
+      flight per session, and reject a second with a typed "already generating".
+
+   Response carries { image_url, prompt, model, reference_count }. Add FAL_KEY,
+   FAL_REFERENCE_MODEL, FAL_FALLBACK_MODEL, FAL_MAX_REFERENCE_IMAGES to config.py —
+   they are already in the local .env, so read them, do not redefine defaults that
+   contradict it. Honour demo_mode="fixture" with a canned result and no network, as the
+   realtime and discovery lanes already do.
+
+4. The result view. The generated image takes the workpane, and the synthesised prompt
+   renders verbatim beneath it in small muted type, alongside the model id and the
+   reference count. The pin rail stays visible so a second Generate is one click away.
+   Button states: idle, generating (disabled, quiet pulse — no spinner), error (one
+   line plus a correlation id, still re-clickable).
+
+DEGRADATION — read this rather than inventing something
+
+When no pin has a public imageUrl, the pins still steer: their titles go into the
+synthesis as visual steering terms, and the response reports reference_count: 0. Do not
+silently drop them, do not fabricate a URL, and do not tell the user the image was
+conditioned on references when it was not. The rail label stays honest either way
+because the titles genuinely reached the prompt.
+
+CONSTRAINTS
+
+TS strict, no `any`, no non-null `!`. mypy --strict, ruff clean, Pydantic v2 at every
+boundary, no bare except. No fal or OpenAI key anywhere near apps/web — both calls are
+server-side. Explicit timeouts on every outbound call; do not retry a fal submit (it
+costs a generation). uv.lock committed. Do not modify README.md or docs/. Do not add a
+dependency beyond what fal needs — plain httpx against the REST queue is enough, no SDK.
+
+ACCEPTANCE
+
+Pin three stickers, hit Generate, and an original image appears in the workpane within
+~45s with the exact prompt that produced it printed underneath. A second click while
+one is running is refused, not queued. Zero pins hides the rail. Fixture mode returns a
+canned result with the network unplugged. Nothing in dist/ contains FAL_KEY or the
+OpenAI key — grep and prove it. pnpm lint/typecheck/build and uv run mypy . / ruff
+check . all pass.
+
+---
+
+the images widget must go at the bottom of the page, not there, move it under the audio thing, and make it insithe a banner with very light background color, so we can understand it is a full thing and in each image we should have the X icon to un-pin it
+
+---
+
+/anthropic-skills:ship-it  into main branch

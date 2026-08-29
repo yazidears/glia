@@ -1,0 +1,71 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "01M16YZZCT2QEJ9C8GPZCTDNQ3",
+  "session_id": "5bb654eb-6eae-4e11-aca4-4e0a8d7a4ac1",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-29T14:32:50.159674Z",
+  "branch": "claude/pin-rail-generate-ea20be",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [
+    "apps/web/src/components/generated-image.tsx",
+    "apps/web/src/components/idea-board.tsx",
+    "apps/web/src/components/pin-rail.tsx",
+    "apps/web/src/components/workpane.tsx",
+    "apps/web/src/hooks/use-generate.ts",
+    "apps/web/src/index.css",
+    "apps/web/src/screens/session-screen.tsx",
+    "apps/web/src/stores/session.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5",
+  "turn_id": "7c4856d35da9",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 296,
+    "cache_creation_tokens": 317523,
+    "cache_read_tokens": 37032699,
+    "output_tokens": 111094,
+    "api_call_count": 148
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-anthropic-skills:ship-it-2026-08-29T14:30:47.157936Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "anthropic-skills:ship-it"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "7c4856d35da9",
+      "timestamp": "2026-08-29T14:30:47.157936Z",
+      "native": {
+        "command": "/anthropic-skills:ship-it"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/anthropic-skills:ship-it",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-29T14:32:49.848503Z",
+    "agent_lines": 721,
+    "agent_removed": 19,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 721,
+    "total_lines_changed": 740,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
