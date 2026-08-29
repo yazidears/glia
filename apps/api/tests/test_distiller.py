@@ -35,18 +35,51 @@ async def test_pioneer_distiller_uses_native_private_inference_contract() -> Non
                 "type": "encoder",
                 "inference_id": "inference-fixture",
                 "result": {
-                    "visual_direction": [
-                        {
-                            "subject": "observatori brutalista",
-                            "mood": ["solitari", "fred"],
-                            "style": ["cinematic", "brutalist"],
-                            "palette": ["blau cobalt"],
-                            "composition": "pla general simetric",
-                            "medium": "film still",
-                            "era": "retrofuturisme dels anys 70",
-                        }
-                    ]
+                    "request_id": None,
+                    "created_at": 1_788_008_749,
+                    "data": {
+                        "visual_direction": [
+                            {
+                                "subject": {
+                                    "text": "observatori brutalista",
+                                    "confidence": 0.91,
+                                },
+                                "mood": [
+                                    {"text": "solitari", "confidence": 0.83},
+                                    {"text": "fred", "confidence": 0.79},
+                                ],
+                                "style": {
+                                    "text": "cinematic",
+                                    "confidence": 0.88,
+                                },
+                                "palette": {
+                                    "text": "blau cobalt",
+                                    "confidence": 0.86,
+                                },
+                                "composition": {
+                                    "text": "pla general simetric",
+                                    "confidence": 0.82,
+                                },
+                                "medium": {
+                                    "text": "film still",
+                                    "confidence": 0.94,
+                                },
+                                "era": None,
+                            }
+                        ],
+                        "entities": {
+                            "person": [],
+                            "organization": [],
+                            "location": [],
+                            "product": [],
+                            "work_of_art": [],
+                        },
+                    },
                 },
+                "model_id": "job-glia-visual-direction",
+                "latency_ms": 231.8,
+                "token_usage": 151,
+                "model_used": "job-glia-visual-direction",
             },
         )
 
@@ -68,6 +101,8 @@ async def test_pioneer_distiller_uses_native_private_inference_contract() -> Non
     assert first.source == "pioneer"
     assert first.intent.medium == "film still"
     assert first.intent.palette == ["blau cobalt"]
+    assert first.intent.moods == ["fred", "solitari"]
+    assert first.intent.era == ""
 
 
 def test_discovery_gate_only_moves_baseline_when_visual_direction_changes() -> None:
