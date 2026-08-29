@@ -38,6 +38,17 @@ Read in this order. Do not read the whole repo.
 
 `entire why <file>` and `entire search "<question>"` recover the reasoning behind existing code. Use them instead of re-deriving it.
 
+## This repository is public and audited
+
+Every commit is published permanently, and Aikido scans this codebase — the repo is a judged artefact, not just a means to a demo. Before writing code, read the **public-repo audit checklist** at the end of `docs/SECURITY.md`.
+
+What this changes for you:
+
+- **Never write a credential into a file.** Not in a test, not in a curl example in a doc, not as a default argument, not truncated, not fake-but-real-shaped. Everything comes from env; `.env.example` holds names and safe defaults only.
+- **Assume a taint analyser is reading your code.** Aikido's SAST does cross-file taint analysis on Python and TypeScript. A remote-supplied value reaching an HTTP client, a subprocess, a query or the DOM will be found.
+- **Never suppress a finding to make a scan green.** If a flag is a false positive, say why in a comment naming the control. A defended finding is fine; a silenced one is not.
+- The banned list, with no exceptions in this repo: `dangerouslySetInnerHTML`, `shell=True`, `eval`, `pickle` or `yaml.load` on external data, f-string SQL, wildcard CORS with `allow_credentials=True`, filenames derived from remote URLs, and stack traces in HTTP responses.
+
 ## Hard rules
 
 **Cala returns no images.** There is no image, thumbnail, logo or media field in its API. Never write code that expects one, and never write UI copy or documentation implying Cala searches the web for pictures. Reference images come from the article pages Cala *cites* (`context[].origins[].document.url`), and from Wikimedia/Openverse. If you are unsure which lane a candidate came from, that is a bug — every candidate carries its lane.
