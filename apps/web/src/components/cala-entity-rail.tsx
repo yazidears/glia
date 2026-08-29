@@ -7,7 +7,7 @@ export interface EntitySuggestion {
   type: string
 }
 
-const MAX_SUGGESTIONS = 5
+const MAX_SUGGESTIONS = 3
 
 /**
  * Cala returns entities alongside the same cited answer that feeds Lane A. The rail deliberately
@@ -64,7 +64,7 @@ export function CalaEntityRail({ previewSuggestions }: CalaEntityRailProps) {
     <aside
       aria-label="Cala related references"
       aria-live="polite"
-      className={`pointer-events-none fixed right-3 bottom-[calc(var(--rail-space)+96px)] left-3 z-40 flex justify-center transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:translate-y-0 motion-reduce:transition-opacity md:right-[330px] md:left-[30vw] ${
+      className={`pointer-events-none fixed right-3 bottom-[calc(var(--rail-space)+146px)] left-3 z-40 flex justify-center transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:translate-y-0 motion-reduce:transition-opacity md:right-[330px] md:bottom-[calc(var(--rail-space)+96px)] md:left-[30vw] ${
         entered ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0'
       }`}
     >
@@ -72,10 +72,10 @@ export function CalaEntityRail({ previewSuggestions }: CalaEntityRailProps) {
         <p className="m-0 shrink-0 pl-1 text-[9px] font-semibold tracking-[0.08em] text-neutral-400 uppercase">
           {previewSuggestions ? 'Demo · related' : 'Cala · related'}
         </p>
-        <ul className="m-0 flex min-w-0 list-none gap-1.5 overflow-x-auto p-0 [scrollbar-width:none]">
+        <ul className="m-0 flex min-w-0 list-none gap-1.5 overflow-hidden p-0">
           {suggestions.map((suggestion, index) => (
             <li
-              className={`shrink-0 rounded-full border border-black/5 bg-black/[0.035] px-2.5 py-1.5 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:translate-y-0 motion-reduce:transition-opacity ${
+              className={`shrink-0 rounded-full border border-black/5 bg-black/[0.035] px-2.5 py-1.5 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:translate-y-0 motion-reduce:transition-opacity ${index >= 2 ? 'hidden sm:block' : ''} ${
                 entered ? 'translate-y-0 opacity-100' : 'translate-y-1 opacity-0'
               }`}
               key={`${suggestion.type}:${suggestion.name}`}
@@ -84,7 +84,7 @@ export function CalaEntityRail({ previewSuggestions }: CalaEntityRailProps) {
               <span className="text-[11px] font-medium whitespace-nowrap text-neutral-700">
                 {suggestion.name}
               </span>
-              <span className="ml-1.5 text-[9px] whitespace-nowrap text-neutral-400">
+              <span className="ml-1.5 hidden text-[9px] whitespace-nowrap text-neutral-400 sm:inline">
                 {suggestion.type}
               </span>
             </li>

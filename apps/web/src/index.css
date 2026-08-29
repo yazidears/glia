@@ -1835,11 +1835,13 @@
     transition-delay: 0ms;
   }
 
-  .generation-flight {
+  .generation-transition[data-stage] .generation-flight {
+    animation: none;
     opacity: 0;
   }
 
-  .generation-energy {
+  .generation-transition[data-stage] .generation-energy {
+    animation: none;
     opacity: 0.72;
     transform: translate3d(-50%, -50%, 0) scale(0.94);
   }

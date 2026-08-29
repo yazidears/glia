@@ -159,6 +159,7 @@ function GenerationTransition() {
   const pinnedCount = useSessionStore((state) => state.pinned.length)
   const [stage, setStage] = useState<GenerationTransitionStage>('idle')
   const [snapshot, setSnapshot] = useState<GenerationSnapshot>(EMPTY_GENERATION_SNAPSHOT)
+  const [directionCount, setDirectionCount] = useState(0)
   const previousStatus = useRef(status)
 
   useEffect(() => {
@@ -169,10 +170,11 @@ function GenerationTransition() {
     }
     const frame = window.requestAnimationFrame(() => {
       setSnapshot(generationSnapshot())
+      setDirectionCount(pinnedCount)
       setStage('gathering')
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [status])
+  }, [pinnedCount, status])
 
   useEffect(() => {
     if (stage === 'idle' || status === 'generating') {
@@ -211,6 +213,12 @@ function GenerationTransition() {
       : status === 'ready' && !imageReady
         ? 'Loading the final image'
         : 'Composing your image'
+  const kicker =
+    status === 'error'
+      ? 'fal · stopped'
+      : status === 'ready'
+        ? 'fal · complete'
+        : 'fal · generating'
 
   return (
     <div
@@ -233,11 +241,11 @@ function GenerationTransition() {
       ))}
       <div aria-hidden="true" className="generation-energy" />
       <div className="generation-status-copy">
-        <span className="generation-status-kicker">fal · generating</span>
+        <span className="generation-status-kicker">{kicker}</span>
         <strong>{message}</strong>
         <span>
-          {pinnedCount > 0
-            ? `${pinnedCount} pinned ${pinnedCount === 1 ? 'direction' : 'directions'}`
+          {directionCount > 0
+            ? `${directionCount} pinned ${directionCount === 1 ? 'direction' : 'directions'}`
             : 'Your conversation is the direction'}
         </span>
       </div>
