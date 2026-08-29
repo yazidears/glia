@@ -1,0 +1,92 @@
+## B-5 · Make pinned references reachable by fal
+
+Backend. Small. Blocks the grid→pin→Generate path entirely.
+
+PROBLEM, both confirmed
+1. merge.py rewrites Candidate.image_url through our /api/image proxy. fal cannot fetch
+   localhost, so every reference-conditioned generation from a grid tile fails.
+   source_url is the landing page, not the image file, so the origin image URL is not
+   currently carried anywhere on the Candidate.
+2. fal's fetcher sends a blank User-Agent; upload.wikimedia.org returns 403, giving
+   file_download_error. Commons is a primary Lane B source, so this is not an edge case.
+
+TASK
+- Add `origin_image_url` to Candidate (the pre-proxy URL) and carry it through merge,
+  the WS payload, the api-client mirror and PinnedRef. image_url stays the proxy URL for
+  display; origin_image_url is what generation uses. Never send the proxy URL to fal.
+- In the generation path, for each pinned reference: fetch the bytes server-side through
+  the existing fetch.py guards (allowlist, size cap, content-type, no redirects), then
+  upload to fal's storage and use the returned fal URL as the image_url. Cap at
+  FAL_MAX_REFERENCE_IMAGES, run the uploads concurrently with a timeout.
+- A reference that cannot be fetched or uploaded is dropped, and the existing typed
+  `reference_unavailable` path reports which one — do not fail the whole generation
+  because one pin is bad.
+- Keep the existing degradation: pin titles always reach the synthesis, reference_count
+  reports what actually conditioned the image.
+
+ACCEPTANCE
+Pin a Commons tile and a Flickr tile from the live grid, hit Generate, and both appear as
+references with reference_count 2 — no file_download_error. Nothing sent to fal contains
+`localhost` or `/api/image`. Existing tests stay green; add one asserting the proxy URL
+is never what goes to fal.
+
+---
+
+<task-notification>
+<task-id>a58dc4be77750db46</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-nectios-workspace-os-hackathons-glia-glia--claude-worktrees-pinned-refs-fal-fetch-c6b909/b2dac509-c189-4ac0-9afd-21ab3f2e0bf5/tasks/a58dc4be77750db46.output</output-file>
+<status>completed</status>
+<summary>Agent "Review pinned reference change" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I now have a complete picture. Here is the review.
+
+## Findings
+
+**[HIGH] `unavailable_references` conflates "we dropped it" with "fal rejected it" and misreports pins that actually succeeded**
+File: `apps/api/glia/api.py:499-519` (`FalReferenceUnavailable` handler) and `_eligible_pin_ids` at `apps/api/glia/api.py:552-555`
+
+When `fal.generate()` raises `FalReferenceUnavailable`, the response sets `unavailable_references=_eligible_pin_ids(payload.pins, settings)`, i.e. *every* pin that had an `origin_image_url` and passed the eligibility filter — not just the ones that were actually resolved and sent as `image_urls` (`references`, computed a few lines above from `resolved.urls`). `ResolvedReferences` never retains a pin-id↔URL mapping, so there is no way to know which of the successfully-uploaded pins correspond to the ones fal choked on. Two consequences:
+- Pins that `resolver.resolve()` already dropped (in `resolved.unavailable`, reported separately/correctly elsewhere) get re-reported here too — harmless duplication, but sloppy.
+- Pins that *did* upload fine to fal's own CDN (so by the module's own logic should be perfectly fetchable) get told to the user as "unavailable," inviting them to unpin a perfectly good reference for a failure that was actually fal's queue/model behaving unexpectedly on that request.
+
+This is explicitly acknowledged in a comment as "every pin we sent is reported as unavailable rather than one being guessed at" — but the code doesn't limit to "sent" pins, it uses the full eligible set, which is broader. Given this branch is intended to be effectively unreachable post-fix, impact is low-probability, but the reporting is provably wrong when it does fire.
+
+**[MEDIUM] PUT to fal's `upload_url` has no protection against DNS-rebinding / literal-IP SSRF, unlike the read path**
+File: `apps/api/glia/generation/fal_storage.py:136-143` (`_https_url`)
+
+`_https_url` only checks `scheme == "https"` and that `parsed.hostname` is non-empty. Compare this to `discovery/fetch.py:_reject_private_addresses` (lines 78-96), which resolves the hostname and explicitly rejects private/loopback/link-local/reserved/multicast addresses before connecting. No equivalent check exists before the `client.put(upload_url, ...)` call at `fal_storage.py:117-128`. A hostname like `https://169.254.169.254/...` or `https://10.0.0.5/...` would pass `_https_url` unmodified. `docs/SECURITY.md`'s new section argues this is fine because "nothing is read back from it, so it is not an SSRF read primitive" — but that framing addresses read-based exfiltration only; a blind SSRF **write** (PUT with attacker-influenced body reaching an internal admin/API endpoint, cloud-metadata token endpoints that respond to PUT, internal object stores, etc.) is not ruled out. The trust boundary here is "fal's authenticated REST response," which is a reasonable mitigation in practice (requires fal's API/account to be compromised or MITM'd), but it's an asymmetry worth being explicit about rather than dismissing as "not SSRF." Recommend at minimum resolving `upload_url`'s host and rejecting private/reserved ranges the same way `_reject_private_addresses` does, mirroring the existing guard rather than introducing a second, weaker one.
+
+**[LOW] `ImageBytes.read()` rejects a legitimate image whose size is exactly the byte cap**
+File: `apps/api/glia/discovery/fetch.py:172-173`
+
+`if len(buffer) &gt;= self._max_bytes: raise FetchFailed(...)`. Because `_stream` only yields a chunk when cumulative `seen &lt;= self._max_bytes` (`fetch.py:187`, strict `&gt;`), a buffer that lands exactly on `max_bytes` is indistinguishable from a truncated one and both get rejected by this `&gt;=`. This is called out in the docstring as an accepted trade-off ("the two are indistinguishable, so both are refused"), so it's intentional, but it does mean an in-spec image sized exactly at the configured cap (e.g. 5,242,880 bytes) is always refused as a reference — worth confirming that's the intended behavior rather than an off-by-one.
+
+**[LOW] `reference_unavailable` UX copy regressed to plural-only phrasing for a still-singular common case**
+File: `apps/web/src/hooks/use-generate.ts:47-51`
+
+The message changed from "One pinned image could not be fetched…unpin it…" to "The pinned images could not be used for conditioning — unpin them…". Since `FalReferenceUnavailable` can still fire with a single reference (the common case, given the model in this repo pins one or a few grid tiles), this is a minor grammatical regression (always plural, even for exactly one pin) — not a functional bug, but worth a quick fix given this file otherwise cares a lot about precise wording.
+
+**Note (not a defect, but worth flagging to the requester): no frontend path yet produces a `PinnedRef` with a non-null `origin_image_url`.**
+Checked `apps/web/src/components/idea-board.tsx`, `pin-rail.tsx`, `workpane.tsx`, `evidence-card.tsx` — the only place a `PinnedRef` is constructed is `refFor()` for stickers (`idea-board.tsx:141-148`), which now sets `originImageUrl: null` explicitly. There is no component in `apps/web/src` that turns a discovered `Candidate` (grid tile) into a pin, so `ReferenceResolver`/`FalStorage` currently has no live caller from the actual product — it's only exercised by the API test suite. That's likely expected as a staged rollout (grid-tile pinning UI presumably lands in a follow-up), but it means this whole re-hosting path is currently dead code from the browser's perspective; worth confirming that's intentional scope for this PR.
+
+## Things checked and found solid
+- `discovery/merge.py:proxied()` is the single call site (`discovery/service.py:255`) applied uniformly across all lanes before candidates are ever emitted, so both "cited" and "open" lanes get `origin_image_url` populated consistently — no lane-specific regression.
+- `ReferenceResolver.resolve()`'s `asyncio.gather` ordering is preserved correctly (`references.py:89-96`); `_rehost` never raises past its own try/except, so gather can't fail; the per-reference `asyncio.timeout` correctly bounds one slow pin without affecting others.
+- `fal.release(payload.session_id)` in `api.py:548-549` is a `finally` around the whole handler body, so the new `await resolver.resolve(...)` call is covered — no scenario leaks the one-in-flight slot.
+- The actual SSRF-relevant enforcement for `origin_image_url` fetches is correctly delegated to the existing `discovery/fetch.py` allowlist + DNS-resolution guard (`is_public_https` in `fal.py` is only a cheap eligibility pre-filter, not a security boundary — the real boundary is `validate_image_url`/`_reject_private_addresses`, unchanged and still enforced on every `read()` call).
+- Fixture mode (`api.py:455-468`) correctly avoids any network call and computes `reference_count` from `reference_pins()` alone, consistent with its "would-have-conditioned" semantics.
+- `packages/api-client/openapi.json` and `schema.d.ts` are correctly regenerated/updated for both new fields (`origin_image_url`, `unavailable_references`), and the TS type marks `unavailable_references` optional consistent with the Pydantic default and the frontend's `?? []` fallback.
+
+## Review Summary
+
+| Severity | Count | Status |
+|----------|-------|--------|
+| CRITICAL | 0     | pass   |
+| HIGH     | 1     | warn   |
+| MEDIUM   | 1     | info   |
+| LOW      | 2     | note   |
+
+Verdict: WARNING — the `unavailable_references` misreporting on the `FalReferenceUnavailable` path (`apps/api/glia/api.py:499-519`, `552-555`) should be fixed before merge since it can tell users to unpin references that actually worked. The SSRF asymmetry in `fal_storage.py:136-143` is worth a follow-up hardening pass but is a reasonable accepted risk given the trust boundary is already documented in `docs/SECURITY.md`.</result>
+<usage><subagent_tokens>99101</subagent_tokens><tool_uses>35</tool_uses><duration_ms>317742</duration_ms></usage>
+</task-notification>

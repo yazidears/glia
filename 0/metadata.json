@@ -1,0 +1,127 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "01M171D2SJPKQNVD7ZSKAXPF5K",
+  "session_id": "b2dac509-c189-4ac0-9afd-21ab3f2e0bf5",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-29T15:14:57.542633Z",
+  "branch": "claude/pinned-refs-fal-fetch-c6b909",
+  "checkpoints_count": 2,
+  "save_step_count": 2,
+  "files_touched": [
+    "apps/api/glia/api.py",
+    "apps/api/glia/config.py",
+    "apps/api/glia/contracts.py",
+    "apps/api/glia/discovery/fetch.py",
+    "apps/api/glia/discovery/merge.py",
+    "apps/api/glia/generation/fal.py",
+    "apps/api/glia/generation/fal_storage.py",
+    "apps/api/glia/generation/references.py",
+    "apps/api/tests/test_discovery_merge.py",
+    "apps/api/tests/test_generate.py",
+    "apps/api/tests/test_image_proxy.py",
+    "apps/web/src/components/generated-image.tsx",
+    "apps/web/src/components/idea-board.tsx",
+    "apps/web/src/hooks/use-generate.ts",
+    "apps/web/src/index.css",
+    "apps/web/src/stores/session.ts",
+    "docs/SECURITY.md",
+    "packages/api-client/openapi.json",
+    "packages/api-client/src/schema.d.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5",
+  "turn_id": "8cedc9c4eade",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 268,
+    "cache_creation_tokens": 250470,
+    "cache_read_tokens": 25352549,
+    "output_tokens": 88425,
+    "api_call_count": 134,
+    "subagent_tokens": {
+      "input_tokens": 54,
+      "cache_creation_tokens": 98817,
+      "cache_read_tokens": 1714052,
+      "output_tokens": 21898,
+      "api_call_count": 27
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-anthropic-skills:ship-it-2026-08-29T15:12:29.659825Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "anthropic-skills:ship-it"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "8cedc9c4eade",
+      "timestamp": "2026-08-29T15:12:29.659825Z",
+      "native": {
+        "command": "/anthropic-skills:ship-it"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/anthropic-skills:ship-it",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-29T15:14:57.32591Z",
+    "agent_lines": 898,
+    "agent_removed": 94,
+    "human_added": 44,
+    "human_modified": 14,
+    "human_removed": 0,
+    "total_committed": 949,
+    "total_lines_changed": 1050,
+    "agent_percentage": 94.47619047619048,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 95,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.json": 95
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 95,
+      "user_lines_removed": 0,
+      "agent_lines_added": 788,
+      "agent_lines_removed": 89,
+      "user_added_per_file": {
+        ".claude/settings.json": 95
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 124,
+      "user_lines_removed": 7,
+      "agent_lines_added": 934,
+      "agent_lines_removed": 101,
+      "user_added_per_file": {
+        ".claude/settings.json": 95,
+        "apps/api/glia/generation/fal_storage.py": 15,
+        "apps/api/glia/generation/references.py": 14
+      },
+      "user_removed_per_file": {
+        "apps/api/glia/generation/fal_storage.py": 2,
+        "apps/api/glia/generation/references.py": 5
+      }
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "01M171D2SJPKQNVD7ZSKAXPF5K",
+  "strategy": "manual-commit",
+  "branch": "claude/pinned-refs-fal-fetch-c6b909",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "apps/api/glia/api.py",
+    "apps/api/glia/config.py",
+    "apps/api/glia/contracts.py",
+    "apps/api/glia/discovery/fetch.py",
+    "apps/api/glia/discovery/merge.py",
+    "apps/api/glia/generation/fal.py",
+    "apps/api/glia/generation/fal_storage.py",
+    "apps/api/glia/generation/references.py",
+    "apps/api/tests/test_discovery_merge.py",
+    "apps/api/tests/test_generate.py",
+    "apps/api/tests/test_image_proxy.py",
+    "apps/web/src/components/generated-image.tsx",
+    "apps/web/src/components/idea-board.tsx",
+    "apps/web/src/hooks/use-generate.ts",
+    "apps/web/src/index.css",
+    "apps/web/src/stores/session.ts",
+    "docs/SECURITY.md",
+    "packages/api-client/openapi.json",
+    "packages/api-client/src/schema.d.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 268,
+    "cache_creation_tokens": 250470,
+    "cache_read_tokens": 25352549,
+    "output_tokens": 88425,
+    "api_call_count": 134,
+    "subagent_tokens": {
+      "input_tokens": 54,
+      "cache_creation_tokens": 98817,
+      "cache_read_tokens": 1714052,
+      "output_tokens": 21898,
+      "api_call_count": 27
+    }
+  }
+}
