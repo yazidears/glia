@@ -7,6 +7,7 @@ import pytest
 from fastapi import WebSocket, WebSocketDisconnect
 
 from glia.contracts import Candidate, CandidatesBatch, VisualIntent
+from glia.discovery.query import build_preview_queries
 from glia.discovery.service import DiscoveryService
 from glia.realtime.distiller import DistillationResult
 from glia.realtime.ideas import IdeaResult
@@ -92,6 +93,30 @@ def test_socket_shutdown_recognises_task_group_disconnects() -> None:
 
     assert _is_socket_shutdown(wrapped)
     assert not _is_socket_shutdown(ExceptionGroup("bug", [ValueError("bad candidate")]))
+
+
+@pytest.mark.asyncio
+async def test_socket_deduplicates_candidate_ids_within_one_revision() -> None:
+    websocket = RecordingWebSocket()
+    session = RealtimeSocketSession(
+        websocket=cast(WebSocket, websocket),
+        debounce_ms=1,
+        max_message_bytes=10_000,
+        discovery=None,
+    )
+    candidate = Candidate(
+        id="commons:observatory",
+        lane="open",
+        image_url="https://example.test/observatory.jpg",
+        source_url="https://example.test/observatory",
+        score=1.0,
+    )
+
+    await session._send(CandidatesBatch(revision=1, candidates=[candidate]))
+    await session._send(CandidatesBatch(revision=1, candidates=[candidate]))
+    await session._send(CandidatesBatch(revision=2, candidates=[candidate]))
+
+    assert [message["revision"] for message in websocket.messages] == [1, 2]
 
 
 @pytest.mark.asyncio
@@ -224,7 +249,7 @@ async def test_openai_ideas_keep_full_project_context_while_fastino_uses_latest_
 
 
 @pytest.mark.asyncio
-async def test_settled_search_uses_openai_semantic_queries_before_discovery() -> None:
+async def test_settled_search_starts_fastino_queries_while_openai_refines() -> None:
     websocket = RecordingWebSocket()
     ideas = BlockingIdeaSynthesizer()
     discovery = RecordingDiscovery()
@@ -236,18 +261,18 @@ async def test_settled_search_uses_openai_semantic_queries_before_discovery() ->
         discovery=cast(DiscoveryService, discovery),
         discovery_debounce_ms=0,
     )
-    intent = VisualIntent(subject="cotxes blaus", moods=[], styles=[], palette=["blau"])
+    intent = VisualIntent(subject="cotxes", moods=[], styles=[], palette=["blau"])
 
     session._schedule_discovery("Vull cotxes blaus", intent)
     pending = session._pending_discovery
     assert pending is not None
     await asyncio.wait_for(ideas.started.wait(), timeout=1)
-    assert not discovery.started.is_set()
-    assert discovery.calls == []
+    await asyncio.wait_for(discovery.started.wait(), timeout=1)
+    assert discovery.calls == [(build_preview_queries(intent), 0, False)]
     assert not any(message["type"] == "ideas.updated" for message in websocket.messages)
 
     ideas.release.set()
     await pending
-    assert discovery.calls[0][0][0] == "blue automobile product photography"
-    assert discovery.calls[0][1:] == (0, True)
+    assert discovery.calls[1][0][0] == "blue automobile product photography"
+    assert discovery.calls[1][1:] == (0, True)
     assert any(message["type"] == "ideas.updated" for message in websocket.messages)

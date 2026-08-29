@@ -8,6 +8,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 from glia.contracts import (
+    CandidatesBatch,
     IdeasUpdated,
     IntentUpdated,
     Ping,
@@ -80,6 +81,7 @@ class RealtimeSocketSession:
         self._preview_signature = ""
         self._pending_discovery: asyncio.Task[None] | None = None
         self._send_lock = asyncio.Lock()
+        self._candidate_ids_by_revision: dict[int, set[str]] = {}
         self._session_id = str(uuid4())
 
     async def run(self) -> None:
@@ -275,9 +277,14 @@ class RealtimeSocketSession:
         self._pending_preview_discovery = asyncio.create_task(preview_discovery())
 
     def _schedule_discovery(self, transcript: str, intent: VisualIntent) -> None:
-        """Turn the settled Fastino direction into corpus-friendly queries, then discover."""
-        if not build_queries(intent):
+        """Search Fastino's direction now, then refine it with OpenAI in parallel."""
+        base_queries = build_queries(intent)
+        if not base_queries:
             return
+        # Interim open-lane discovery is intentionally allowlisted. Arbitrary Fastino phrases
+        # such as "enchufes minimalistas" used to broaden to "minimalistas" and fill the board
+        # with fonts and insects before OpenAI could supply a semantic query.
+        fast_queries = build_preview_queries(intent)
         previous = self._pending_discovery
         if previous is not None:
             previous.cancel()
@@ -292,30 +299,46 @@ class RealtimeSocketSession:
             # completion perceptibly later. The free open-preview lane is already filling the UI.
             await asyncio.sleep(min(self._discovery_debounce_seconds, 0.1))
             try:
-                try:
-                    ideas = await synthesizer.synthesize(transcript, intent)
-                except IdeasUnavailable as error:
-                    logger.warning(
-                        "ideas.fallback",
-                        error_type=type(error).__name__,
-                        cause_type=type(error.__cause__).__name__ if error.__cause__ else None,
+                async def refine_and_discover() -> None:
+                    try:
+                        ideas = await synthesizer.synthesize(transcript, intent)
+                    except IdeasUnavailable as error:
+                        logger.warning(
+                            "ideas.fallback",
+                            error_type=type(error).__name__,
+                            cause_type=type(error.__cause__).__name__ if error.__cause__ else None,
+                        )
+                        ideas = await local_synthesizer.synthesize(transcript, intent)
+                    await self._send(
+                        IdeasUpdated(
+                            revision=revision,
+                            ideas=ideas.ideas,
+                            keywords=ideas.keywords,
+                            source=ideas.source,
+                        )
                     )
-                    ideas = await local_synthesizer.synthesize(transcript, intent)
-                await self._send(
-                    IdeasUpdated(
-                        revision=revision,
-                        ideas=ideas.ideas,
-                        keywords=ideas.keywords,
-                        source=ideas.source,
-                    )
-                )
-                queries = merge_idea_queries(intent, ideas)
-                if service is not None and queries:
-                    await service.discover(
-                        queries=queries,
-                        revision=revision,
-                        emit=self._send,
-                    )
+                    queries = merge_idea_queries(intent, ideas)
+                    if service is not None and queries:
+                        await service.discover(
+                            queries=queries,
+                            revision=revision,
+                            emit=self._send,
+                        )
+
+                async with asyncio.TaskGroup() as group:
+                    group.create_task(refine_and_discover())
+                    if service is not None and fast_queries:
+                        # Fastino has already identified the current visual subject. Let the free
+                        # lanes search it immediately while OpenAI prepares more semantic English
+                        # queries. Cala remains exclusively on the refined, settled call below.
+                        group.create_task(
+                            service.discover(
+                                queries=fast_queries,
+                                revision=revision,
+                                emit=self._send,
+                                include_cited=False,
+                            )
+                        )
             except (WebSocketDisconnect, RuntimeError):
                 # The socket closed while a wave was in flight. Nothing to do.
                 return
@@ -355,4 +378,16 @@ class RealtimeSocketSession:
 
     async def _send(self, message: ServerMessage) -> None:
         async with self._send_lock:
+            if isinstance(message, CandidatesBatch):
+                seen = self._candidate_ids_by_revision.setdefault(message.revision, set())
+                candidates = [
+                    candidate for candidate in message.candidates if candidate.id not in seen
+                ]
+                if not candidates:
+                    return
+                seen.update(candidate.id for candidate in candidates)
+                message = message.model_copy(update={"candidates": candidates})
+                for revision in tuple(self._candidate_ids_by_revision):
+                    if revision < message.revision - 1:
+                        self._candidate_ids_by_revision.pop(revision, None)
             await self._websocket.send_text(message.model_dump_json())

@@ -109,6 +109,9 @@ class OpenAIIdeaSynthesizer:
             ),
             "text_format": _IdeaPayload,
             "max_output_tokens": 160,
+            # This call sits on the live speech path. Fast processing costs more, but makes the
+            # refined keywords arrive while the first Fastino-driven image wave is still landing.
+            "service_tier": "fast",
             "store": False,
         }
         if self._model.startswith("gpt-5"):

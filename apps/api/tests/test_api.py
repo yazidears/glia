@@ -177,7 +177,8 @@ def test_websocket_does_not_rediscover_an_unchanged_intent() -> None:
                     "transcript": transcript,
                 }
             )
-        # accepted, intent, ideas, batch for the first turn; accepted, intent for the second.
+        # The first turn emits one deduplicated candidate wave alongside its intent and ideas;
+        # the unchanged second turn emits only accepted + intent.
         messages = [socket.receive_json() for _ in range(6)]
         # Long enough for a second discovery to have cleared its debounce.
         time.sleep(1.5)

@@ -52,6 +52,7 @@ async def test_openai_ideas_are_structured_cached_and_become_search_queries() ->
     assert first.source == "openai"
     assert len(responses.calls) == 1
     assert responses.calls[0]["store"] is False
+    assert responses.calls[0]["service_tier"] == "fast"
     assert merge_idea_queries(intent, first) == (
         "green apples product photography",
         "green apple orchard",
