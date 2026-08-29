@@ -1,4 +1,4 @@
-import type { ConnectionState, VisualIntent } from '@glia/api-client'
+import type { Candidate, ConnectionState, VisualIntent } from '@glia/api-client'
 import { create } from 'zustand'
 
 /** Where the browser's microphone permission currently stands. */
@@ -44,6 +44,16 @@ interface SessionState {
    * "not settled" and "the idea did not move" the same no-op for anything keyed on it.
    */
   discoveryTranscript: string
+  /**
+   * Every candidate shipped for the current subject, in arrival order.
+   *
+   * Appended, never prepended: a wave lands while the user is looking at the grid, and
+   * pushing existing tiles down the page is the one thing the reserved aspect boxes are
+   * there to prevent. New work goes at the end, where nothing has to move for it.
+   */
+  candidates: Candidate[]
+  /** The subject these candidates belong to. A new one empties the grid. */
+  candidateSubject: string
   setConnection: (connectionState: ConnectionState, connectionError?: string | null) => void
   setSessionId: (sessionId: string) => void
   setTranscriptState: (transcript: string, transcriptSegments: TranscriptSegment[]) => void
@@ -54,6 +64,13 @@ interface SessionState {
    * credit" — which is exactly the condition discovery is allowed to fire on.
    */
   setIntent: (intent: VisualIntent, transcript: string, shouldDiscover: boolean) => void
+  /**
+   * Add a wave. Deduped by id because the lanes can surface the same image twice and a
+   * reconnect can replay a batch — either way the grid must not grow a duplicate tile.
+   */
+  appendCandidates: (candidates: Candidate[]) => void
+  /** Drop a tile whose image the browser could not load. */
+  removeCandidate: (id: string) => void
   resetRealtime: () => void
 }
 
@@ -80,6 +97,8 @@ export const useSessionStore = create<SessionState>()((set) => ({
   intent: null,
   sessionId: null,
   discoveryTranscript: '',
+  candidates: [],
+  candidateSubject: '',
   setConnection: (connectionState, connectionError = null) =>
     set({ connectionState, connectionError }),
   setSessionId: (sessionId) => set({ sessionId }),
@@ -94,10 +113,36 @@ export const useSessionStore = create<SessionState>()((set) => ({
       processedWordCount: Math.max(state.processedWordCount, processedWordCount),
     })),
   setIntent: (intent, transcript, shouldDiscover) =>
-    set((state) => ({
-      intent,
-      discoveryTranscript: shouldDiscover ? transcript : state.discoveryTranscript,
-    })),
+    set((state) => {
+      // The subject is the identity of what is on screen. When it moves, the grid is
+      // showing the wrong thing, and clearing it as the new query goes out is more
+      // honest than leaving the last subject's images under the new one's waves.
+      const subject = intent.subject.trim().toLowerCase()
+      const subjectMoved = shouldDiscover && subject !== state.candidateSubject
+      return {
+        intent,
+        discoveryTranscript: shouldDiscover ? transcript : state.discoveryTranscript,
+        candidates: subjectMoved ? [] : state.candidates,
+        candidateSubject: shouldDiscover ? subject : state.candidateSubject,
+      }
+    }),
+  appendCandidates: (candidates) =>
+    set((state) => {
+      const known = new Set(state.candidates.map((item) => item.id))
+      const fresh: Candidate[] = []
+      for (const item of candidates) {
+        if (!known.has(item.id)) {
+          known.add(item.id)
+          fresh.push(item)
+        }
+      }
+      return fresh.length > 0 ? { candidates: [...state.candidates, ...fresh] } : state
+    }),
+  removeCandidate: (id) =>
+    set((state) => {
+      const remaining = state.candidates.filter((item) => item.id !== id)
+      return remaining.length === state.candidates.length ? state : { candidates: remaining }
+    }),
   resetRealtime: () =>
     set({
       connectionState: 'idle',
@@ -108,5 +153,7 @@ export const useSessionStore = create<SessionState>()((set) => ({
       intent: null,
       sessionId: null,
       discoveryTranscript: '',
+      candidates: [],
+      candidateSubject: '',
     }),
 }))

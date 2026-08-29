@@ -11,7 +11,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Health */
+        /**
+         * Health
+         * @description Liveness plus the one capability the client cannot infer: can images arrive?
+         *
+         *     The lane probe is what makes a dead lane visible without reading logs. It costs
+         *     nothing while the app is in use — a lane outcome seen in the last minute answers
+         *     for itself — and only goes upstream for a lane nobody has exercised.
+         */
         get: operations["health_health_get"];
         put?: never;
         post?: never;
@@ -77,6 +84,30 @@ export interface paths {
          *     previous one, and the ledger refuses outright once the budget is gone.
          */
         post: operations["discover_v1_discover_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Image Proxy
+         * @description Re-serve a discovered image so the browser never hot-links a third party.
+         *
+         *     `url` is remote-supplied and is treated as such: ImageFetcher owns the
+         *     scheme and host allowlists, the resolved-address check, redirect refusal,
+         *     the content-type check and the streamed byte cap.
+         */
+        get: operations["image_proxy_api_image_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -208,6 +239,28 @@ export interface components {
              * @description Whether this server can return image candidates for a distilled intent. False means the client must not offer an image-bearing output mode.
              */
             image_discovery: boolean;
+            /**
+             * Lanes
+             * @description Per-lane health. `ok` means the lane answered with candidates; every other value means the grid is running on fewer lanes than it should be.
+             */
+            lanes?: components["schemas"]["LaneHealth"][];
+        };
+        /**
+         * LaneHealth
+         * @description One image lane's last known outcome, so a dead lane is visible without logs.
+         */
+        LaneHealth: {
+            /** Lane */
+            lane: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "empty" | "unavailable" | "timeout" | "crashed" | "unknown";
+            /** Count */
+            count: number;
+            /** Elapsed Ms */
+            elapsed_ms: number;
         };
         /**
          * LedgerSnapshot
@@ -358,6 +411,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiscoverResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    image_proxy_api_image_get: {
+        parameters: {
+            query: {
+                url: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

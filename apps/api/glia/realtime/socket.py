@@ -3,6 +3,7 @@ import json
 from contextlib import suppress
 from uuid import uuid4
 
+import structlog
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
@@ -21,6 +22,7 @@ from glia.contracts import (
 )
 from glia.discovery.query import build_queries, subject_key
 from glia.discovery.service import DiscoveryService
+from glia.discovery.subject import refuse_subject
 from glia.realtime.distiller import (
     DiscoveryGate,
     DistillationResult,
@@ -29,6 +31,8 @@ from glia.realtime.distiller import (
     IntentDistiller,
 )
 from glia.realtime.transcript import FastIntentProjector, TranscriptAccumulator
+
+logger = structlog.get_logger(__name__)
 
 
 class RealtimeSocketSession:
@@ -41,6 +45,7 @@ class RealtimeSocketSession:
         gate_jaccard_threshold: float = 0.4,
         discovery: DiscoveryService | None = None,
         discovery_debounce_ms: int = 600,
+        min_subject_confidence: float = 0.0,
     ) -> None:
         self._websocket = websocket
         self._debounce_seconds = debounce_ms / 1_000
@@ -56,6 +61,7 @@ class RealtimeSocketSession:
         self._discovery_debounce_seconds = discovery_debounce_ms / 1_000
         self._pending_discovery: asyncio.Task[None] | None = None
         self._discovery_subject = ""
+        self._min_subject_confidence = min_subject_confidence
         self._send_lock = asyncio.Lock()
         self._session_id = str(uuid4())
 
@@ -168,10 +174,27 @@ class RealtimeSocketSession:
             )
         )
         if stable and gate is not None and gate.should_discover:
-            self._schedule_discovery(distilled.intent)
+            self._schedule_discovery(distilled.intent, distilled.subject_confidence)
 
-    def _schedule_discovery(self, intent: VisualIntent) -> None:
-        """Debounce per session and run off the socket loop: discovery never blocks."""
+    def _schedule_discovery(self, intent: VisualIntent, confidence: float | None = None) -> None:
+        """Debounce per session and run off the socket loop: discovery never blocks.
+
+        No subject, no query. Filler distils into a subject as confidently as anything
+        else does, and both image lanes will happily search for it — so the refusal has
+        to happen here, before either lane is handed a word nobody meant.
+        """
+        refusal = refuse_subject(
+            intent.subject,
+            confidence=confidence,
+            min_confidence=self._min_subject_confidence,
+        )
+        if refusal is not None:
+            logger.info(
+                "discovery.subject_refused",
+                session_id=self._session_id,
+                reason=refusal.reason,
+            )
+            return
         subject = subject_key(intent)
         queries = build_queries(intent)
         if self._discovery is None or not queries or subject == self._discovery_subject:
