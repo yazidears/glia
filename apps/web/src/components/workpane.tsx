@@ -2,9 +2,11 @@ import type { DiscoverResponse, ResolvedEntity } from '@glia/api-client'
 import type { CSSProperties } from 'react'
 import Markdown, { type Components } from 'react-markdown'
 import { EvidenceCard } from '@/components/evidence-card'
+import { GeneratedImage } from '@/components/generated-image'
 import { IdeaBoard } from '@/components/idea-board'
 import { DiscoveryError, useDiscovery } from '@/hooks/use-discovery'
 import { cn } from '@/lib/utils'
+import { useSessionStore } from '@/stores/session'
 
 interface WorkpaneProps {
   className?: string
@@ -173,11 +175,29 @@ function Result({ data }: { data: DiscoverResponse }) {
  * what Cala actually cited: sourced content outranks a placeholder, and the two must never be
  * on screen together or the demo stickers read as evidence.
  *
+ * A generated image takes precedence over both. It is the last beat of the session and the only
+ * place the prompt that produced it can be read, so it holds the pane until the next one lands.
+ *
  * Every state below is a real outcome. None is a crash, and none invents an answer Cala did
  * not cite.
  */
 export function Workpane({ className }: WorkpaneProps) {
   const { data, isFetching, error } = useDiscovery()
+  const generated = useSessionStore((state) => state.generation)
+
+  // A generated image outranks everything: it is the thing the user just asked for, and it is
+  // the only surface where the prompt that produced it can be read. Nothing replaces it until
+  // the next Generate lands — a failure keeps its line in the rail rather than taking this pane.
+  if (generated) {
+    return (
+      <section
+        aria-label="Generated image"
+        className={cn('flex min-h-0 flex-col overflow-y-auto p-5 md:p-8', className)}
+      >
+        <GeneratedImage value={generated} />
+      </section>
+    )
+  }
 
   const loading = isFetching && !data
   const correlationId = error instanceof DiscoveryError ? error.correlationId : null
