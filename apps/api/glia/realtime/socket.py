@@ -21,7 +21,7 @@ from glia.contracts import (
     VisualIntent,
     client_message_adapter,
 )
-from glia.discovery.query import build_queries
+from glia.discovery.query import build_preview_queries, build_queries
 from glia.discovery.service import DiscoveryService
 from glia.realtime.distiller import (
     DiscoveryGate,
@@ -34,6 +34,7 @@ from glia.realtime.ideas import (
     IdeasUnavailable,
     IdeaSynthesizer,
     LocalIdeaSynthesizer,
+    merge_idea_queries,
 )
 from glia.realtime.transcript import FastIntentProjector, TranscriptAccumulator
 
@@ -244,7 +245,7 @@ class RealtimeSocketSession:
         finished the sentence, but it can never reach Cala or spend a credit. The settled path
         later replaces it with the refined Fastino/OpenAI/Cala result.
         """
-        queries = build_queries(intent)
+        queries = build_preview_queries(intent)
         signature = "\x1f".join(queries)
         if self._discovery is None or not queries or signature == self._preview_signature:
             return
@@ -274,9 +275,8 @@ class RealtimeSocketSession:
         self._pending_preview_discovery = asyncio.create_task(preview_discovery())
 
     def _schedule_discovery(self, transcript: str, intent: VisualIntent) -> None:
-        """Search the Fastino direction immediately while OpenAI refines in parallel."""
-        queries = build_queries(intent)
-        if not queries:
+        """Turn the settled Fastino direction into corpus-friendly queries, then discover."""
+        if not build_queries(intent):
             return
         previous = self._pending_discovery
         if previous is not None:
@@ -292,38 +292,30 @@ class RealtimeSocketSession:
             # completion perceptibly later. The free open-preview lane is already filling the UI.
             await asyncio.sleep(min(self._discovery_debounce_seconds, 0.1))
             try:
-                async def publish_ideas() -> None:
-                    try:
-                        ideas = await synthesizer.synthesize(transcript, intent)
-                    except IdeasUnavailable as error:
-                        logger.warning(
-                            "ideas.fallback",
-                            error_type=type(error).__name__,
-                            cause_type=type(error.__cause__).__name__ if error.__cause__ else None,
-                        )
-                        ideas = await local_synthesizer.synthesize(transcript, intent)
-                    await self._send(
-                        IdeasUpdated(
-                            revision=revision,
-                            ideas=ideas.ideas,
-                            keywords=ideas.keywords,
-                            source=ideas.source,
-                        )
+                try:
+                    ideas = await synthesizer.synthesize(transcript, intent)
+                except IdeasUnavailable as error:
+                    logger.warning(
+                        "ideas.fallback",
+                        error_type=type(error).__name__,
+                        cause_type=type(error.__cause__).__name__ if error.__cause__ else None,
                     )
-
-                async with asyncio.TaskGroup() as group:
-                    # Fastino already produced the useful search direction. Do not put a second
-                    # model call in front of image discovery: OpenAI can polish the visible
-                    # keywords without delaying either open-lane results or the single Cala call.
-                    group.create_task(publish_ideas())
-                    if service is not None:
-                        group.create_task(
-                            service.discover(
-                                queries=queries,
-                                revision=revision,
-                                emit=self._send,
-                            )
-                        )
+                    ideas = await local_synthesizer.synthesize(transcript, intent)
+                await self._send(
+                    IdeasUpdated(
+                        revision=revision,
+                        ideas=ideas.ideas,
+                        keywords=ideas.keywords,
+                        source=ideas.source,
+                    )
+                )
+                queries = merge_idea_queries(intent, ideas)
+                if service is not None and queries:
+                    await service.discover(
+                        queries=queries,
+                        revision=revision,
+                        emit=self._send,
+                    )
             except (WebSocketDisconnect, RuntimeError):
                 # The socket closed while a wave was in flight. Nothing to do.
                 return

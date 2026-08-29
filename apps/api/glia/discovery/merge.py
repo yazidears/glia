@@ -2,13 +2,29 @@
 
 import re
 from collections.abc import Iterable, Sequence
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 from glia.contracts import Candidate
 from glia.discovery.fetch import host_allowed
 
 _PUNCTUATION = re.compile(r"[^a-z0-9]+")
 _TRACKING_PREFIXES = ("utm_",)
+_NON_PHOTO_FILE = re.compile(r"\.(?:djvu?|eps|pdf|ps|svg)(?:[./_-]|$)", re.IGNORECASE)
+_LOW_SIGNAL_TITLE_PATTERNS = (
+    re.compile(
+        r"\b(?:alphabet chart|character set|font specimen|glyph sheet|typeface|typography)\b"
+    ),
+    re.compile(
+        r"\b(?:clip ?art|icon set|logo sheet|pictogram|vector graphic|vector illustration)\b"
+    ),
+    re.compile(
+        r"\b(?:blueprint|diagram|flowchart|floor plan|organigram|schematic|technical drawing)\b"
+    ),
+    re.compile(
+        r"\b(?:application form|book page|document scan|manuscript page|official form|"
+        r"scan of|scanned document|title page)\b"
+    ),
+)
 
 
 def dedupe_key(candidate: Candidate) -> str:
@@ -35,6 +51,26 @@ def normalise_url(raw: str) -> str:
     )
 
 
+def _is_low_signal_open_candidate(candidate: Candidate) -> bool:
+    """Reject high-confidence document assets before they can dominate a wave.
+
+    Commons renders PDF, DjVu and SVG pages as ordinary PNG/JPEG thumbnails. Those
+    files satisfy the image contract but are generally scans, diagrams or vector
+    specimens rather than useful reference photography. The title checks remain
+    deliberately narrow: paintings and illustrations are still valid references,
+    and ambiguous product photography should be kept.
+    """
+    paths = " ".join(
+        unquote(urlsplit(url).path).casefold()
+        for url in (candidate.image_url, candidate.source_url)
+    )
+    if _NON_PHOTO_FILE.search(paths):
+        return True
+
+    title = _PUNCTUATION.sub(" ", (candidate.title or "").casefold()).strip()
+    return any(pattern.search(title) for pattern in _LOW_SIGNAL_TITLE_PATTERNS)
+
+
 def is_servable(candidate: Candidate, *, min_edge: int, allowlist: tuple[str, ...]) -> bool:
     """Keep only candidates the grid can actually render.
 
@@ -53,11 +89,7 @@ def is_servable(candidate: Candidate, *, min_edge: int, allowlist: tuple[str, ..
         )
     if candidate.width is None or candidate.height is None:
         return False
-    # Commons can return page thumbnails from PDFs/DjVu documents. They technically render, but
-    # they are scans rather than useful visual references and dominated the live board for broad
-    # Spanish queries. Keep the discovery lane photographic by rejecting document derivatives.
-    document_urls = f"{candidate.image_url} {candidate.source_url}".casefold()
-    if any(extension in document_urls for extension in (".pdf", ".djvu")):
+    if _is_low_signal_open_candidate(candidate):
         return False
     if candidate.width < min_edge or candidate.height < min_edge:
         return False

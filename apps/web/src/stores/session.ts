@@ -129,12 +129,31 @@ function phaseAfter(state: SessionState, transcript: string): SessionPhase {
 }
 
 const SUBJECT_SCAFFOLDING = new Set([
+  'a',
+  'al',
   'and',
   'amb',
   'con',
+  'de',
+  'del',
+  'el',
+  'els',
+  'en',
   'et',
   'i',
+  'la',
+  'las',
+  'les',
+  'los',
+  'para',
+  'per',
+  'por',
   'quiero',
+  'the',
+  'to',
+  'un',
+  'una',
+  'uno',
   'unas',
   'unes',
   'uns',
@@ -255,13 +274,17 @@ export const useSessionStore = create<SessionState>()((set) => ({
       }
       if (
         state.pendingCandidateRevision !== null &&
-        batch.revision >= state.pendingCandidateRevision
+        batch.revision >= state.pendingCandidateRevision &&
+        batch.candidates.length > 0
       ) {
         return {
           candidates: batch.candidates,
           candidateRevision: batch.revision,
           pendingCandidateRevision: null,
         }
+      }
+      if (state.pendingCandidateRevision !== null) {
+        return state
       }
       return {
         candidates:

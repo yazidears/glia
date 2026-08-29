@@ -1,5 +1,5 @@
 from glia.contracts import VisualIntent
-from glia.discovery.query import build_queries
+from glia.discovery.query import build_preview_queries, build_queries
 
 
 def intent(
@@ -78,3 +78,32 @@ def test_ladder_turns_spanish_military_plane_into_a_photographic_query() -> None
         "military aircraft",
         "aircraft",
     )
+
+
+def test_preview_maps_minimalist_outlets_to_findable_english_concepts() -> None:
+    expected = (
+        "minimalist electrical outlet",
+        "modern wall socket",
+        "electrical outlet product design",
+    )
+    assert build_preview_queries(intent("enchufes minimalistas")) == expected
+    assert build_preview_queries(intent("endolls minimalistes")) == expected
+    assert build_preview_queries(intent("minimalist electrical outlets")) == expected
+
+
+def test_preview_can_take_minimalist_direction_from_structured_style() -> None:
+    assert build_preview_queries(intent("enchufes", styles=["minimalistas"])) == (
+        "minimalist electrical outlet",
+        "modern wall socket",
+        "electrical outlet product design",
+    )
+
+
+def test_preview_keeps_known_demo_concepts_fast() -> None:
+    assert build_preview_queries(intent("gatos y perros")) == ("cats dogs", "dogs")
+    assert build_preview_queries(intent("manzanas verdes")) == ("green apples", "apples")
+
+
+def test_preview_does_not_search_unknown_or_project_compounds_literally() -> None:
+    assert build_preview_queries(intent("club ticketing ui", styles=["minimalist"])) == ()
+    assert build_preview_queries(intent("fuera para comprar tickets clubs")) == ()

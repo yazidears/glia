@@ -99,6 +99,15 @@ describe('live candidate messages', () => {
 
     useSessionStore.getState().appendCandidates({
       type: 'candidates.batch',
+      revision: 5,
+      candidates: [],
+    })
+    expect(useSessionStore.getState().candidates[0]?.title).toBe('Green apple')
+    expect(useSessionStore.getState().candidateRevision).toBe(4)
+    expect(useSessionStore.getState().pendingCandidateRevision).toBe(5)
+
+    useSessionStore.getState().appendCandidates({
+      type: 'candidates.batch',
       revision: 4,
       candidates: [
         {
@@ -120,41 +129,51 @@ describe('live candidate messages', () => {
     })
     expect(useSessionStore.getState().candidates[0]?.title).toBe('Green apple')
 
+    const catsCandidate = {
+      id: 'commons:cats-and-dogs',
+      lane: 'open' as const,
+      image_url: 'http://localhost:8000/api/image?url=cats-and-dogs',
+      source_url: 'https://commons.wikimedia.org/wiki/File:CatsAndDogs.jpg',
+      publisher: 'Wikimedia Commons',
+      title: 'Cats and dogs',
+      evidence: null,
+      licence: 'CC BY-SA 4.0',
+      entity_name: null,
+      entity_type: null,
+      width: 960,
+      height: 640,
+      score: 0.9,
+    }
     const catsBatch = {
       type: 'candidates.batch' as const,
       revision: 5,
-      candidates: [
-        {
-          id: 'commons:cats-and-dogs',
-          lane: 'open' as const,
-          image_url: 'http://localhost:8000/api/image?url=cats-and-dogs',
-          source_url: 'https://commons.wikimedia.org/wiki/File:CatsAndDogs.jpg',
-          publisher: 'Wikimedia Commons',
-          title: 'Cats and dogs',
-          evidence: null,
-          licence: 'CC BY-SA 4.0',
-          entity_name: null,
-          entity_type: null,
-          width: 960,
-          height: 640,
-          score: 0.9,
-        },
-      ],
+      candidates: [catsCandidate],
     }
     useSessionStore.getState().appendCandidates(catsBatch)
     expect(useSessionStore.getState().candidates).toEqual(catsBatch.candidates)
     expect(useSessionStore.getState().pendingCandidateRevision).toBeNull()
 
+    const pinnedCat = {
+      id: catsCandidate.id,
+      title: catsCandidate.title,
+      lane: catsCandidate.lane,
+      imageUrl: catsCandidate.image_url,
+      sourceUrl: catsCandidate.source_url,
+    }
+    useSessionStore.getState().togglePin(pinnedCat)
+
     useSessionStore.getState().setIntent({
       ...applesIntent,
       revision: 6,
       transcript: 'Manzanas verdes. Gatos y perros.',
-      intent: { ...applesIntent.intent, subject: 'gatos y perros', palette: [] },
+      intent: { ...applesIntent.intent, subject: 'los gatos y los perros', palette: [] },
       change_reasons: [],
     })
 
     expect(useSessionStore.getState().candidates).toEqual(catsBatch.candidates)
     expect(useSessionStore.getState().candidateRevision).toBe(5)
+    expect(useSessionStore.getState().pendingCandidateRevision).toBeNull()
+    expect(useSessionStore.getState().pinned).toEqual([pinnedCat])
   })
 })
 

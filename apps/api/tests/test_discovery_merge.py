@@ -39,15 +39,71 @@ def test_a_candidate_under_the_minimum_edge_is_dropped() -> None:
 
 
 def test_document_page_thumbnails_are_not_visual_references() -> None:
-    assert not is_servable(
+    document_candidates = [
         candidate(
             "pdf",
             image_url="https://upload.wikimedia.org/page1-500px-report.pdf.jpg",
             source_url="https://commons.wikimedia.org/wiki/File:Report.pdf",
         ),
-        min_edge=200,
-        allowlist=ALLOWLIST,
+        candidate(
+            "djvu",
+            image_url="https://upload.wikimedia.org/page4-600px-archive.djvu.jpg",
+            source_url="https://commons.wikimedia.org/wiki/File:Archive.djvu",
+        ),
+        candidate(
+            "encoded-svg",
+            image_url="https://upload.wikimedia.org/thumb/font%2Esvg/800px-font.svg.png",
+            source_url="https://commons.wikimedia.org/wiki/File:Font.svg",
+        ),
+    ]
+
+    assert all(
+        not is_servable(item, min_edge=200, allowlist=ALLOWLIST) for item in document_candidates
     )
+
+
+def test_obvious_scans_diagrams_and_type_specimens_are_dropped() -> None:
+    titles = [
+        "Application form for museum membership",
+        "Electrical outlet schematic",
+        "Modernist typeface specimen",
+        "Navigation icon set",
+    ]
+
+    assert all(
+        not is_servable(
+            candidate(
+                f"junk-{index}",
+                image_url=f"https://upload.wikimedia.org/junk-{index}.png",
+                title=title,
+            ),
+            min_edge=200,
+            allowlist=ALLOWLIST,
+        )
+        for index, title in enumerate(titles)
+    )
+
+
+def test_real_product_photos_and_illustrations_remain_eligible() -> None:
+    useful_candidates = [
+        candidate(
+            "outlet",
+            image_url="https://upload.wikimedia.org/minimal-wall-outlet.jpg",
+            title="Minimal wall outlet in a concrete interior",
+        ),
+        candidate(
+            "illustration",
+            image_url="https://upload.wikimedia.org/botanical-illustration.png",
+            title="Botanical illustration of green apples",
+        ),
+        candidate(
+            "painting",
+            image_url="https://upload.wikimedia.org/modernist-painting.jpg",
+            title="Modernist painting",
+        ),
+    ]
+
+    assert all(is_servable(item, min_edge=200, allowlist=ALLOWLIST) for item in useful_candidates)
 
 
 def test_a_candidate_that_is_not_http_or_https_is_dropped() -> None:
@@ -94,9 +150,7 @@ def test_duplicate_urls_and_titles_are_dropped_across_lanes() -> None:
         candidate("r3", image_url="https://upload.wikimedia.org/d.jpg", title="Sundial"),
     ]
 
-    selected = select_new(
-        [left, right], seen=seen, min_edge=200, allowlist=ALLOWLIST, limit=20
-    )
+    selected = select_new([left, right], seen=seen, min_edge=200, allowlist=ALLOWLIST, limit=20)
 
     assert [item.id for item in selected] == ["l1", "r3", "l2"]
 
@@ -121,7 +175,6 @@ def test_the_proxy_rewrite_keeps_the_origin_as_source_url() -> None:
     rewritten = proxied([original], proxy_base="https://api.glia.test/")[0]
 
     assert rewritten.image_url == (
-        "https://api.glia.test/api/image?url="
-        "https%3A%2F%2Fupload.wikimedia.org%2Fa%20b.jpg%3Fx%3D1"
+        "https://api.glia.test/api/image?url=https%3A%2F%2Fupload.wikimedia.org%2Fa%20b.jpg%3Fx%3D1"
     )
     assert rewritten.source_url == original.source_url

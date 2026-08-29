@@ -68,6 +68,54 @@ _PALETTE_ALIASES = {
     "vert": "green",
 }
 
+# Preview discovery runs while the user is still speaking, before the OpenAI
+# query planner has translated the idea into corpus-friendly concepts. Keep it
+# deliberately closed: an exact phrase that is not listed here gets no preview
+# search, so the board keeps its current references instead of flashing an
+# unrelated result for a literal speech fragment.
+_MINIMAL_OUTLET_QUERIES = (
+    "minimalist electrical outlet",
+    "modern wall socket",
+    "electrical outlet product design",
+)
+_OUTLET_QUERIES = (
+    "electrical outlet",
+    "wall socket",
+)
+_PREVIEW_QUERY_LADDERS: dict[tuple[str, ...], tuple[str, ...]] = {
+    ("enchufe",): _OUTLET_QUERIES,
+    ("enchufes",): _OUTLET_QUERIES,
+    ("endoll",): _OUTLET_QUERIES,
+    ("endolls",): _OUTLET_QUERIES,
+    ("electrical", "outlet"): _OUTLET_QUERIES,
+    ("electrical", "outlets"): _OUTLET_QUERIES,
+    ("wall", "socket"): _OUTLET_QUERIES,
+    ("wall", "sockets"): _OUTLET_QUERIES,
+    ("enchufe", "minimalista"): _MINIMAL_OUTLET_QUERIES,
+    ("enchufes", "minimalistas"): _MINIMAL_OUTLET_QUERIES,
+    ("endoll", "minimalista"): _MINIMAL_OUTLET_QUERIES,
+    ("endolls", "minimalistes"): _MINIMAL_OUTLET_QUERIES,
+    ("minimalist", "electrical", "outlet"): _MINIMAL_OUTLET_QUERIES,
+    ("minimalist", "electrical", "outlets"): _MINIMAL_OUTLET_QUERIES,
+    ("minimalist", "wall", "socket"): _MINIMAL_OUTLET_QUERIES,
+    ("minimalist", "wall", "sockets"): _MINIMAL_OUTLET_QUERIES,
+}
+_OUTLET_SUBJECTS = frozenset(
+    {
+        ("enchufe",),
+        ("enchufes",),
+        ("endoll",),
+        ("endolls",),
+        ("electrical", "outlet"),
+        ("electrical", "outlets"),
+        ("wall", "socket"),
+        ("wall", "sockets"),
+    }
+)
+_MINIMAL_STYLE_WORDS = frozenset(
+    {"minimal", "minimalist", "minimalista", "minimalistas", "minimalistes"}
+)
+
 
 def build_queries(intent: VisualIntent) -> tuple[str, ...]:
     """Return the query ladder for one intent, sharpest first, possibly empty."""
@@ -102,6 +150,29 @@ def build_queries(intent: VisualIntent) -> tuple[str, ...]:
     return tuple(unique[:MAX_RUNGS])
 
 
+def build_preview_queries(intent: VisualIntent) -> tuple[str, ...]:
+    """Return fast, known-safe searches for an in-progress speech preview.
+
+    Stable discovery has an OpenAI-planned query path and continues to use the
+    general :func:`build_queries` ladder. This preview path intentionally emits
+    nothing for unknown or project-level compounds; holding the existing board
+    is more useful than searching a literal partial sentence.
+    """
+    subject = tuple(_words(intent.subject))
+    if subject in _OUTLET_SUBJECTS and _has_minimal_style(intent):
+        return _MINIMAL_OUTLET_QUERIES
+
+    known_ladder = _PREVIEW_QUERY_LADDERS.get(subject)
+    if known_ladder is not None:
+        return known_ladder
+
+    # Existing aliases are a small, exact list of measured live-demo concepts
+    # whose English search terms are known to be useful in the open corpora.
+    if subject in _SUBJECT_ALIASES:
+        return build_queries(intent)
+    return ()
+
+
 def subject_key(intent: VisualIntent) -> str:
     """The subject alone, as the identity of what the user is talking about.
 
@@ -134,6 +205,14 @@ def _palette_sharpener(intent: VisualIntent, *, taken: set[str]) -> str | None:
         if colour not in taken:
             return colour
     return None
+
+
+def _has_minimal_style(intent: VisualIntent) -> bool:
+    return any(
+        word in _MINIMAL_STYLE_WORDS
+        for term in [*intent.styles, *intent.moods]
+        for word in _words(term)
+    )
 
 
 def _search_subject_words(value: str) -> list[str]:

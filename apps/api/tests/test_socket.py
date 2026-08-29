@@ -7,7 +7,6 @@ import pytest
 from fastapi import WebSocket, WebSocketDisconnect
 
 from glia.contracts import Candidate, CandidatesBatch, VisualIntent
-from glia.discovery.query import build_queries
 from glia.discovery.service import DiscoveryService
 from glia.realtime.distiller import DistillationResult
 from glia.realtime.ideas import IdeaResult
@@ -61,7 +60,12 @@ class BlockingIdeaSynthesizer:
         del transcript
         self.started.set()
         await self.release.wait()
-        return IdeaResult(ideas=[intent.subject], keywords=[intent.subject], source="openai")
+        return IdeaResult(
+            ideas=[intent.subject],
+            keywords=[intent.subject],
+            source="openai",
+            search_queries=["blue automobile product photography"],
+        )
 
 
 class RecordingDiscovery:
@@ -220,7 +224,7 @@ async def test_openai_ideas_keep_full_project_context_while_fastino_uses_latest_
 
 
 @pytest.mark.asyncio
-async def test_settled_search_does_not_wait_for_openai_ideas() -> None:
+async def test_settled_search_uses_openai_semantic_queries_before_discovery() -> None:
     websocket = RecordingWebSocket()
     ideas = BlockingIdeaSynthesizer()
     discovery = RecordingDiscovery()
@@ -238,11 +242,12 @@ async def test_settled_search_does_not_wait_for_openai_ideas() -> None:
     pending = session._pending_discovery
     assert pending is not None
     await asyncio.wait_for(ideas.started.wait(), timeout=1)
-    await asyncio.wait_for(discovery.started.wait(), timeout=1)
-
-    assert discovery.calls == [(build_queries(intent), 0, True)]
+    assert not discovery.started.is_set()
+    assert discovery.calls == []
     assert not any(message["type"] == "ideas.updated" for message in websocket.messages)
 
     ideas.release.set()
     await pending
+    assert discovery.calls[0][0][0] == "blue automobile product photography"
+    assert discovery.calls[0][1:] == (0, True)
     assert any(message["type"] == "ideas.updated" for message in websocket.messages)
