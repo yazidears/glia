@@ -38,14 +38,194 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ledger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ledger
+         * @description Credits spent this process. In-process, so it resets with the API — that is a known
+         *     limitation of today's counter, not a claim about the monthly pool.
+         */
+        get: operations["ledger_v1_ledger_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/discover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Discover
+         * @description Resolve the spoken subject against Cala, then find the sources that answer it.
+         *
+         *     Three gates stand in front of the two upstream calls, and a settled turn that fails any of
+         *     them costs nothing: the per-session debounce replays the last answer, the cache replays a
+         *     previous one, and the ledger refuses outright once the budget is gone.
+         */
+        post: operations["discover_v1_discover_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * CalaEntityHit
+         * @description One row of `GET /entities?name=…` — the entity-resolution step.
+         */
+        CalaEntityHit: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Entity Type */
+            entity_type?: string | null;
+            /** Description */
+            description?: string | null;
+        };
+        /** CalaExplanation */
+        CalaExplanation: {
+            /**
+             * Content
+             * @default
+             */
+            content: string;
+            /** References */
+            references?: string[];
+        };
+        /** CalaNamedUrl */
+        CalaNamedUrl: {
+            /** Name */
+            name?: string | null;
+            /** Url */
+            url?: string | null;
+        };
+        /** CalaOrigin */
+        CalaOrigin: {
+            source?: components["schemas"]["CalaNamedUrl"] | null;
+            document?: components["schemas"]["CalaNamedUrl"] | null;
+        };
+        /** CalaSearchEntity */
+        CalaSearchEntity: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Entity Type */
+            entity_type?: string | null;
+            /** Mentions */
+            mentions?: string[];
+        };
+        /** DiscoverRequest */
+        DiscoverRequest: {
+            /** Transcript */
+            transcript: string;
+            /** Session Id */
+            session_id: string;
+        };
+        /** DiscoverResponse */
+        DiscoverResponse: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "empty" | "rate_limited" | "budget_exhausted";
+            /** Session Id */
+            session_id: string;
+            /** Subject */
+            subject: string | null;
+            /** Query */
+            query: string;
+            entity: components["schemas"]["CalaEntityHit"] | null;
+            /** Answer */
+            answer: string | null;
+            /** Explainability */
+            explainability: components["schemas"]["CalaExplanation"][];
+            /** Context */
+            context: components["schemas"]["EvidenceItem"][];
+            /** Entities */
+            entities: components["schemas"]["CalaSearchEntity"][];
+            /** Cached */
+            cached: boolean;
+            ledger: components["schemas"]["LedgerSnapshot"];
+            /** Correlation Id */
+            correlation_id: string;
+        };
+        /**
+         * EvidenceItem
+         * @description A `context[]` item, with the explainability join already resolved.
+         *
+         *     `carried_answer` is ours, not Cala's: it is true when this item's id appears in some
+         *     `explainability[].references`, which is the salience signal the UI badges.
+         */
+        EvidenceItem: {
+            /** Id */
+            id: string;
+            /** Content */
+            content: string;
+            /** Origins */
+            origins: components["schemas"]["CalaOrigin"][];
+            /** Carried Answer */
+            carried_answer: boolean;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HealthResponse */
+        HealthResponse: {
+            /** Status */
+            status: string;
+            /** Service */
+            service: string;
+            /** Mode */
+            mode: string;
+            /** Realtime */
+            realtime: string;
+            /** Distiller */
+            distiller: string;
+            /**
+             * Image Discovery
+             * @description Whether this server can return image candidates for a distilled intent. False means the client must not offer an image-bearing output mode.
+             */
+            image_discovery: boolean;
+        };
+        /**
+         * LedgerSnapshot
+         * @description Credits spent this process. `entity_calls` is counted separately because
+         *     docs/PARTNERS.md flags it as undocumented whether `/entities` consumes credits; we charge
+         *     it against the budget (the safe direction) while keeping it measurable against the console.
+         */
+        LedgerSnapshot: {
+            /** Budget */
+            budget: number;
+            /** Spent */
+            spent: number;
+            /** Remaining */
+            remaining: number;
+            /** Search Calls */
+            search_calls: number;
+            /** Entity Calls */
+            entity_calls: number;
         };
         /** RealtimeTokenRequest */
         RealtimeTokenRequest: {
@@ -100,9 +280,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["HealthResponse"];
                 };
             };
         };
@@ -127,6 +305,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RealtimeTokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ledger_v1_ledger_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LedgerSnapshot"];
+                };
+            };
+        };
+    };
+    discover_v1_discover_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiscoverRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscoverResponse"];
                 };
             };
             /** @description Validation Error */

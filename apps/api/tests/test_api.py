@@ -1,3 +1,4 @@
+import time
 from collections.abc import Sequence
 
 from fastapi.testclient import TestClient
@@ -94,3 +95,64 @@ def test_websocket_reconciles_deltas_and_returns_stable_intent(
     assert intent["should_discover"] is True
     assert intent["change_reasons"] == ["initial"]
     assert intent["intent"]["moods"] == ["cold", "lonely"]
+
+
+def test_websocket_streams_candidates_after_a_stable_intent() -> None:
+    with TestClient(app) as client, client.websocket_connect("/ws") as socket:
+        assert socket.receive_json()["type"] == "session.ready"
+        socket.send_json(
+            {
+                "type": "transcript.completed",
+                "event_id": "event-1",
+                "item_id": "item-1",
+                "transcript": "A lonely cobalt observatory, cinematic and cold",
+            }
+        )
+        assert socket.receive_json()["type"] == "transcript.accepted"
+        intent = socket.receive_json()
+        batch = socket.receive_json()
+
+    assert intent["type"] == "intent.updated"
+    assert intent["should_discover"] is True
+    assert batch["type"] == "candidates.batch"
+    assert batch["revision"] == intent["revision"]
+    assert batch["candidates"]
+    for candidate in batch["candidates"]:
+        assert candidate["lane"] == "open"
+        assert candidate["title"]
+        assert candidate["licence"]
+        assert candidate["width"] and candidate["height"]
+        assert candidate["image_url"].startswith("http://localhost:8000/api/image?url=")
+
+
+def test_websocket_does_not_rediscover_an_unchanged_subject() -> None:
+    with TestClient(app) as client, client.websocket_connect("/ws") as socket:
+        socket.receive_json()
+        for index, transcript in enumerate(
+            ["A cobalt observatory", "A cobalt observatory, cinematic"]
+        ):
+            socket.send_json(
+                {
+                    "type": "transcript.completed",
+                    "event_id": f"event-{index}",
+                    "item_id": f"item-{index}",
+                    "transcript": transcript,
+                }
+            )
+        # accepted, intent, batch for the first turn; accepted, intent for the second.
+        messages = [socket.receive_json() for _ in range(5)]
+        # Long enough for a second discovery to have cleared its debounce.
+        time.sleep(1.5)
+        socket.send_json({"type": "ping", "event_id": "ping-1"})
+        following = socket.receive_json()
+
+    assert sorted(message["type"] for message in messages) == [
+        "candidates.batch",
+        "intent.updated",
+        "intent.updated",
+        "transcript.accepted",
+        "transcript.accepted",
+    ]
+    # The second turn sharpens the intent but names the same subject, so the
+    # grid is not refilled and nothing else is waiting behind the pong.
+    assert following == {"type": "pong", "event_id": "ping-1"}

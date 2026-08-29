@@ -16,8 +16,11 @@ from glia.contracts import (
     TranscriptAccepted,
     TranscriptCompleted,
     TranscriptDelta,
+    VisualIntent,
     client_message_adapter,
 )
+from glia.discovery.query import build_queries, subject_key
+from glia.discovery.service import DiscoveryService
 from glia.realtime.distiller import (
     DiscoveryGate,
     DistillationResult,
@@ -36,6 +39,8 @@ class RealtimeSocketSession:
         max_message_bytes: int,
         distiller: IntentDistiller | None = None,
         gate_jaccard_threshold: float = 0.4,
+        discovery: DiscoveryService | None = None,
+        discovery_debounce_ms: int = 600,
     ) -> None:
         self._websocket = websocket
         self._debounce_seconds = debounce_ms / 1_000
@@ -47,6 +52,10 @@ class RealtimeSocketSession:
         self._gate = DiscoveryGate(gate_jaccard_threshold)
         self._revision = 0
         self._pending_projection: asyncio.Task[None] | None = None
+        self._discovery = discovery
+        self._discovery_debounce_seconds = discovery_debounce_ms / 1_000
+        self._pending_discovery: asyncio.Task[None] | None = None
+        self._discovery_subject = ""
         self._send_lock = asyncio.Lock()
         self._session_id = str(uuid4())
 
@@ -70,6 +79,7 @@ class RealtimeSocketSession:
             pass
         finally:
             await self._cancel_pending_projection()
+            await self._cancel_pending_discovery()
 
     async def _handle(self, raw: str) -> None:
         try:
@@ -157,6 +167,41 @@ class RealtimeSocketSession:
                 change_reasons=gate.reasons if gate else [],
             )
         )
+        if stable and gate is not None and gate.should_discover:
+            self._schedule_discovery(distilled.intent)
+
+    def _schedule_discovery(self, intent: VisualIntent) -> None:
+        """Debounce per session and run off the socket loop: discovery never blocks."""
+        subject = subject_key(intent)
+        queries = build_queries(intent)
+        if self._discovery is None or not queries or subject == self._discovery_subject:
+            return
+        self._discovery_subject = subject
+        previous = self._pending_discovery
+        if previous is not None:
+            previous.cancel()
+
+        service = self._discovery
+        revision = self._revision
+
+        async def delayed_discovery() -> None:
+            await asyncio.sleep(self._discovery_debounce_seconds)
+            try:
+                await service.discover(queries=queries, revision=revision, emit=self._send)
+            except (WebSocketDisconnect, RuntimeError):
+                # The socket closed while a wave was in flight. Nothing to do.
+                return
+
+        self._pending_discovery = asyncio.create_task(delayed_discovery())
+
+    async def _cancel_pending_discovery(self) -> None:
+        task = self._pending_discovery
+        self._pending_discovery = None
+        if task is None or task is asyncio.current_task():
+            return
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
     async def _cancel_pending_projection(self) -> None:
         task = self._pending_projection
