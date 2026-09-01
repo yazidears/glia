@@ -1,3 +1,5 @@
+This project won Best use of Pioneer, with a compensation of 500€.
+
 # Glia
 
 **Speak until you see it.**
